@@ -1,0 +1,84 @@
+DCOP Testing Framework
+======================
+
+This project provides a framework for testing Distributed Constraint Optimization 
+Problem (DCOP) algorithms on different network topologies.
+
+DCOP Problem Definition
+-----------------------
+A DCOP consists of:
+- N agents, each numbered 1 to N
+- Each agent selects a value X from domain [0, M-1]
+- Some agents are connected to each other (constraint graph)
+- Each connected pair has a cost matrix (M x M) defining costs for value combinations
+- Total system cost = sum of costs for all connected agent pairs
+- Goal: Minimize total system cost through distributed algorithm
+
+Current Implementation
+----------------------
+The framework currently includes a simple random algorithm where each agent 
+randomly selects a value from its domain. This serves as a baseline for 
+comparing more sophisticated DCOP algorithms.
+
+Network Topologies
+------------------
+Currently supports:
+- Random Network: Agents are connected with probability = networkDensity
+
+Running in GUI Mode
+-------------------
+1. Start the simulator:
+   ./sinalgo -project dcopProject
+
+2. Click the "Run DCOP Test" button in the GUI
+
+3. The test will:
+   - Run multiple iterations (default: 10)
+   - Generate a new random problem for each iteration
+   - Execute the algorithm with timeout (default: 30 seconds)
+   - Display results and save to CSV file
+
+Configuration
+-------------
+Edit Config.xml to modify test parameters:
+- numIterations: Number of test runs (default: 10)
+- timeoutSeconds: Max time per iteration (default: 30)
+- numAgents: Number of agents (default: 10)
+- domainSize: Domain size M (default: 5)
+- minCost/maxCost: Cost range (default: 0-100)
+- networkDensity: Connection probability (default: 0.3)
+- problemSeed: Initial seed for problem generation (default: 1000)
+- algorithmSeed: Initial seed for algorithm randomness (default: 2000)
+
+Note: Seeds are incremented by 1 for each iteration to ensure different problems.
+
+Running in Batch Mode
+----------------------
+For automated testing without GUI:
+   ./sinalgo -project dcopProject -batch
+
+Results are printed to console and saved to logs/dcop_results_[timestamp].csv
+
+Results Format
+--------------
+CSV output includes:
+- Iteration number
+- Runtime in milliseconds
+- Total cost achieved
+- Agent value assignments
+
+Console output includes:
+- Per-iteration results
+- Average cost across all iterations
+- Average runtime
+
+Extending the Framework
+-----------------------
+To implement a new DCOP algorithm:
+1. Modify DCOPAgent.startAlgorithm() to implement your algorithm
+2. Use handleMessages() to process neighbor messages
+3. Use ValueMessage to communicate with neighbors
+4. The DCOPProblem object provides access to neighbors and cost functions
+
+The shared code in src/common/dcop/ can be reused across multiple algorithm 
+implementations, making it easy to compare different approaches.

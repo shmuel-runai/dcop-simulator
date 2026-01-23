@@ -1,0 +1,71 @@
+package utils.protocols.mpc.secureinvert;
+
+import java.util.HashMap;
+import java.util.Map;
+import utils.protocols.core.IProtocolMessage;
+
+
+/**
+ * Request message to initiate secure inversion.
+ * 
+ * Sent by the initiator to all participants to start the inversion protocol.
+ */
+public class SecureInvertRequestMessage implements IProtocolMessage {
+    
+    public final String protocolId;
+    public final String inputSecretId;
+    public final String outputSecretId;
+    public final long prime;
+    public final int senderId;
+    public final String resultTag;  // null for sticky, non-null for tagged storage
+    
+    public SecureInvertRequestMessage(String protocolId, String inputSecretId, 
+                                     String outputSecretId, long prime, int senderId,
+                                     String resultTag) {
+        this.protocolId = protocolId;
+        this.inputSecretId = inputSecretId;
+        this.outputSecretId = outputSecretId;
+        this.prime = prime;
+        this.senderId = senderId;
+        this.resultTag = resultTag;
+    }
+    
+    @Override
+    public String getProtocolId() {
+        return protocolId;
+    }
+    
+    @Override
+    public String getProtocolType() {
+        return SecureInvertProtocol.PROTOCOL_TYPE;
+    }
+    
+    @Override
+    public int getSenderId() {
+        return senderId;
+    }
+    
+    @Override
+    public Map<String, Object> extractParams() {
+        Map<String, Object> params = new HashMap<>();
+        params.put("inputSecretId", inputSecretId);
+        params.put("outputSecretId", outputSecretId);
+        params.put("prime", Long.valueOf(prime));
+        params.put("resultTag", resultTag);
+        params.put("initiatorId", Integer.valueOf(senderId));
+        return params;
+    }
+    
+    // Getters for encapsulation
+    public String getInputSecretId() { return inputSecretId; }
+    public String getOutputSecretId() { return outputSecretId; }
+    public long getPrime() { return prime; }
+    public String getResultTag() { return resultTag; }
+    
+    @Override
+    public String toString() {
+        return "SecureInvertRequest{protocolId=" + protocolId + 
+               ", input=" + inputSecretId + ", output=" + outputSecretId + "}";
+    }
+}
+

@@ -1,0 +1,13 @@
+{
+  "java.autobuild.enabled": false,
+  "java.import.gradle.enabled": false,
+  "java.import.maven.enabled": false,
+  "java.configuration.updateBuildConfiguration": "disabled",
+  "java.debug.settings.enableRunDebugCodeLens": false,
+  "java.project.explorer.showNonJavaResources": false,
+  "java.server.launchMode": "Disabled",
+  "files.watcherExclude": {
+    "**/binaries/**": true,
+    "**/build/**": true
+  }
+}

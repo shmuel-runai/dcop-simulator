@@ -1,0 +1,49 @@
+# ===================
+# Build artifacts
+# ===================
+binaries/bin/
+dist/
+doc/
+*.class
+
+# ===================
+# Logs and results
+# ===================
+logs/
+
+# ===================
+# IDE and editor files
+# ===================
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+*.swp
+*.swo
+*~
+
+# ===================
+# Local project context
+# ===================
+.local/
+
+# ===================
+# Temp and backup files
+# ===================
+*.bak
+javac.*.args
+
+# ===================
+# macOS
+# ===================
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ===================
+# Windows
+# ===================
+Thumbs.db
+ehthumbs.db
+Desktop.ini

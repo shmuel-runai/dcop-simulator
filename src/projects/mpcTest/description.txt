@@ -1,0 +1,27 @@
+MPC Test Suite
+
+This Sinalgo project demonstrates the Distributed Protocol Framework for Multi-Party Computation (MPC).
+
+Features:
+- Full mesh network of 10 nodes
+- Automated testing of 100 iterations
+- Each iteration tests:
+  1. Share distribution for two random secrets (a and b)
+  2. Secure addition (a + b = res-c) using local MPC computation
+  3. Secret reconstruction to verify correctness
+  4. Protocol cleanup between iterations
+
+The first node (ID=1) acts as the test coordinator and orchestrates all tests.
+All nodes participate in the distributed protocols.
+
+Protocols used:
+- Share Distribution: Distribute a secret value to all nodes
+- Secure Add MPC: Locally compute shares for sum of two secrets
+- Reconstruct Secret: Collect shares and reconstruct the secret value
+
+Implementation files:
+- MPCTestNode.java: Custom node with protocol manager integration
+- FullMesh.java: Connectivity model for complete graph
+- Config.xml: Sinalgo framework configuration
+
+
