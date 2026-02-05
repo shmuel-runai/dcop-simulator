@@ -27,6 +27,7 @@ logs/
 # Local project context
 # ===================
 .local/
+.ref/
 
 # ===================
 # Temp and backup files
