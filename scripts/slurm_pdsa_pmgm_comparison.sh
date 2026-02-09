@@ -8,6 +8,14 @@
 
 # DCOP Algorithm Comparison: PDSA vs PMGM
 # 
+# Usage:
+#   ./scripts/slurm_pdsa_pmgm_comparison.sh [PROJECT_DIR]
+#   sbatch scripts/slurm_pdsa_pmgm_comparison.sh [PROJECT_DIR]
+#
+# Environment variables:
+#   PROJECT_DIR  - Path to dcop-simulator project (default: current directory)
+#   JAVA_CMD     - Java command with options (default: java -Djava.awt.headless=true -Xmx8g)
+#
 # Test Matrix:
 # - Algorithms: PDSA, PMGM
 # - Network types: RANDOM (density=0.4), SCALE_FREE (init=4, addition=2)
@@ -22,8 +30,12 @@
 
 set -e
 
+# Project directory: use argument, then env var, then current directory
+PROJECT_DIR="${1:-${PROJECT_DIR:-$(pwd)}}"
+
 # Change to project directory
-cd /Users/sgoldklang/java/dcop-simulator
+cd "$PROJECT_DIR"
+echo "Working directory: $(pwd)"
 
 # Create directories
 mkdir -p results

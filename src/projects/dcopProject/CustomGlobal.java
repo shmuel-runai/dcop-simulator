@@ -51,7 +51,7 @@ public class CustomGlobal extends AbstractCustomGlobal {
     // Algorithm selection
     private AlgorithmType selectedAlgorithm;
     private double dsaStochastic = 0.8;  // DSA stochastic parameter
-    private int lastRound = 10;          // Number of rounds for round-based algorithms (MAXSUM/PMAXSUM)
+    private int lastRound = -1;          // -1 = timeout-based halting, >0 = round-based halting
     private IDCOPNetworkBuilder currentNetworkBuilder;  // For post-deploy wiring (MAXSUM/P-MAXSUM)
     private boolean testRunning;
     private int currentIteration;

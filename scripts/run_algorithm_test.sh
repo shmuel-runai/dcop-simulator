@@ -18,8 +18,11 @@
 #   --problem-seed <n>      Base seed for problem generation
 #   --output-prefix <str>   Prefix for output files
 #   --export-problems       Enable export of problem cost matrices
-#   --last-round <n>        Number of rounds for round-based algorithms
+#   --last-round <n>        Round-based halting (-1 for timeout-based)
 #   --help                  Show this help message
+#
+# Environment variables:
+#   JAVA_CMD                Java command with options (default: java -Djava.awt.headless=true -Xmx8g)
 
 set -e
 
@@ -38,7 +41,7 @@ ADDITION=2
 PROBLEM_SEED=1000
 OUTPUT_PREFIX=""
 EXPORT_PROBLEMS="false"
-LAST_ROUND=10
+LAST_ROUND=-1  # -1 means use timeout-based halting (not round-based)
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -115,7 +118,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Configuration
-JAVA_CMD="java -Xmx8g -cp binaries/bin:binaries/jdom.jar"
+# Note: -Djava.awt.headless=true is required for running on headless servers/clusters
+# JAVA_CMD can be overridden via environment variable
+JAVA_CMD="${JAVA_CMD:-java -Djava.awt.headless=true -Xmx8g} -cp binaries/bin:binaries/jdom.jar"
 MAIN_CLASS="sinalgo.runtime.Main"
 PROJECT="-project dcopProject -batch"
 
