@@ -218,8 +218,11 @@
 			numAgents="10"
 			domainSize="5"
 			minCost="0"
-			maxCost="100"
+			maxCost="10"
 			networkDensity="0.3"
+			networkType="RANDOM"
+			initClique="4"
+			addition="2"
 		/>
 		
 		<!-- Node display settings -->

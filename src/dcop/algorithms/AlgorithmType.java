@@ -22,7 +22,17 @@ public enum AlgorithmType {
     /**
      * P-MGM (Private Maximum Gain Message) - privacy-preserving MGM using MPC.
      */
-    PMGM;
+    PMGM,
+    
+    /**
+     * P-MAXSUM (Private Max-Sum) - privacy-preserving Max-Sum using Paillier encryption.
+     */
+    PMAXSUM,
+    
+    /**
+     * MAXSUM (Max-Sum) - vanilla Max-Sum algorithm (no privacy protection).
+     */
+    MAXSUM;
     
     /**
      * Parse algorithm type from string (case-insensitive).
@@ -40,7 +50,7 @@ public enum AlgorithmType {
             return AlgorithmType.valueOf(name.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(
-                "Unknown algorithm: " + name + ". Valid options: BASIC, DSA, PDSA, PMGM");
+                "Unknown algorithm: " + name + ". Valid options: BASIC, DSA, PDSA, PMGM, PMAXSUM, MAXSUM");
         }
     }
 }

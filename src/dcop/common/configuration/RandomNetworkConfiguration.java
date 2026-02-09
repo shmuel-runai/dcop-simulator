@@ -4,16 +4,11 @@ import dcop.common.DCOPProblem;
 
 /**
  * Configuration parameters for DCOP simulation with random network topology.
- * Contains all settings needed to generate and test DCOP problems on random networks.
+ * Contains settings needed to generate DCOP problems on random networks.
  */
 public class RandomNetworkConfiguration implements ISimulationConfiguration {
-    // Simulation execution parameters
-    public int numIterations;
-    public long timeoutMs;  // Timeout in milliseconds
     
     // Problem generation parameters
-    public long problemSeed;
-    public long algorithmSeed;
     public int numAgents;
     public int domainSize;
     public int minCost;
@@ -27,46 +22,31 @@ public class RandomNetworkConfiguration implements ISimulationConfiguration {
      */
     public RandomNetworkConfiguration() {
         // Default values
-        this.numIterations = 10;
-        this.timeoutMs = 30000; // 30 seconds
-        this.problemSeed = 1000;
-        this.algorithmSeed = 2000;
         this.numAgents = 10;
         this.domainSize = 5;
         this.minCost = 0;
-        this.maxCost = 100;
+        this.maxCost = 10;
         this.networkDensity = 0.3;
     }
     
     /**
      * Creates a random network configuration with specified values.
-     * Useful for programmatic configuration and testing.
      * 
-     * @param numIterations Number of simulation iterations
-     * @param timeoutMs Timeout in milliseconds per iteration
-     * @param problemSeed Seed for problem generation
-     * @param algorithmSeed Seed for algorithm randomness
      * @param numAgents Number of agents (N)
      * @param domainSize Domain size (M)
      * @param minCost Minimum cost value
      * @param maxCost Maximum cost value
      * @param networkDensity Network density [0.0, 1.0]
      */
-    public RandomNetworkConfiguration(int numIterations, long timeoutMs, long problemSeed, 
-                                     long algorithmSeed, int numAgents, int domainSize, 
-                                     int minCost, int maxCost, double networkDensity) {
-        this.numIterations = numIterations;
-        this.timeoutMs = timeoutMs;
-        this.problemSeed = problemSeed;
-        this.algorithmSeed = algorithmSeed;
+    public RandomNetworkConfiguration(int numAgents, int domainSize, 
+                                       int minCost, int maxCost, 
+                                       double networkDensity) {
         this.numAgents = numAgents;
         this.domainSize = domainSize;
         this.minCost = minCost;
         this.maxCost = maxCost;
         this.networkDensity = networkDensity;
     }
-    
-    
     
     // ISimulationConfiguration interface implementation
     
@@ -115,7 +95,6 @@ public class RandomNetworkConfiguration implements ISimulationConfiguration {
     
     /**
      * Generates a random cost matrix with uniform distribution.
-     * This is specific to random network configuration.
      * 
      * @param random Random number generator to use
      * @return M x M cost matrix with random values in [minCost, maxCost]
@@ -132,7 +111,7 @@ public class RandomNetworkConfiguration implements ISimulationConfiguration {
     
     @Override
     public String toString() {
-        return String.format("RandomNetworkConfig[iterations=%d, timeout=%dms, N=%d, M=%d, density=%.2f, seeds=(p:%d,a:%d)]",
-                             numIterations, timeoutMs, numAgents, domainSize, networkDensity, problemSeed, algorithmSeed);
+        return String.format("RandomNetworkConfig[N=%d, M=%d, costs=[%d,%d], density=%.2f]",
+                             numAgents, domainSize, minCost, maxCost, networkDensity);
     }
 }

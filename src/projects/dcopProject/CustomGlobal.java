@@ -8,7 +8,10 @@ import java.util.List;
 import javax.swing.JOptionPane;
 
 import dcop.common.DCOPProblem;
+import dcop.common.configuration.ISimulationConfiguration;
+import dcop.common.configuration.NetworkType;
 import dcop.common.configuration.RandomNetworkConfiguration;
+import dcop.common.configuration.ScaleFreeConfiguration;
 import dcop.common.TestResults;
 import dcop.common.network.DCOPNetwork;
 import dcop.common.network.IDCOPNetworkBuilder;
@@ -18,6 +21,8 @@ import dcop.algorithms.basic.BasicNetworkBuilder;
 import dcop.algorithms.dsa.DSANetworkBuilder;
 import dcop.algorithms.pdsa.PDSANetworkBuilder;
 import dcop.algorithms.pmgm.PMGMNetworkBuilder;
+import dcop.algorithms.pmaxsum.PMaxSumNetworkBuilder;
+import dcop.algorithms.maxsum.MaxSumNetworkBuilder;
 import sinalgo.configuration.Configuration;
 import sinalgo.nodes.Node;
 import sinalgo.nodes.Position;
@@ -34,13 +39,20 @@ import sinalgo.tools.Tools;
 public class CustomGlobal extends AbstractCustomGlobal {
     
     // Simulation state
-    private RandomNetworkConfiguration config;
+    private ISimulationConfiguration config;
+    private int numAgents;  // Cached for node filtering
+    private int numIterations;  // Cached for iteration control
+    private long timeoutMs;  // Cached for timeout
+    private long problemSeed;  // Base seed for problem generation
+    private long algorithmSeed;  // Base seed for algorithm randomness
     private TestResults results;
     private DCOPProblem currentProblem;
     
     // Algorithm selection
     private AlgorithmType selectedAlgorithm;
     private double dsaStochastic = 0.8;  // DSA stochastic parameter
+    private int lastRound = 10;          // Number of rounds for round-based algorithms (MAXSUM/PMAXSUM)
+    private IDCOPNetworkBuilder currentNetworkBuilder;  // For post-deploy wiring (MAXSUM/P-MAXSUM)
     private boolean testRunning;
     private int currentIteration;
     private long iterationStartTime;
@@ -49,6 +61,20 @@ public class CustomGlobal extends AbstractCustomGlobal {
     private boolean iterationTimerStarted;  // Flag to track if timer has started for current iteration
     private int totalIterations;
     private long[] iterationActualRuntimes;  // Track actual wall-clock time per iteration
+    
+    // Output configuration
+    private String outputPrefix = "";     // Prefix for output files
+    private boolean exportProblems = false;  // Whether to export problem cost matrices
+    private long currentProblemSeed;      // Seed used for current problem
+    
+    // Cached config values for TestConfig export
+    private int domainSizeConfig;
+    private int minCostConfig;
+    private int maxCostConfig;
+    private double networkDensityConfig;
+    private int initCliqueConfig;
+    private int additionConfig;
+    private NetworkType networkTypeConfig;
     
     /**
      * Constructor - initialize configuration from Config.xml.
@@ -59,11 +85,16 @@ public class CustomGlobal extends AbstractCustomGlobal {
         long timeoutMs = 60000;
         long problemSeed = 1000;
         long algorithmSeed = 2000;
-        int numAgents = 10;
+        int numAgentsConfig = 10;
         int domainSize = 5;
         int minCost = 0;
-        int maxCost = 100;
+        int maxCost = 10;
         double networkDensity = 0.3;
+        
+        // Scale-free network parameters
+        NetworkType networkType = NetworkType.RANDOM;
+        int initClique = 4;
+        int addition = 2;
         
         try {
             numIterations = Configuration.getIntegerParameter("DCOPTest/numIterations");
@@ -91,9 +122,9 @@ public class CustomGlobal extends AbstractCustomGlobal {
         }
         
         try {
-            numAgents = Configuration.getIntegerParameter("DCOPTest/numAgents");
+            numAgentsConfig = Configuration.getIntegerParameter("DCOPTest/numAgents");
         } catch (Exception e) {
-            System.out.println("Could not read numAgents from config, using default: " + numAgents);
+            System.out.println("Could not read numAgents from config, using default: " + numAgentsConfig);
         }
         
         try {
@@ -120,18 +151,91 @@ public class CustomGlobal extends AbstractCustomGlobal {
             System.out.println("Could not read networkDensity from config, using default: " + networkDensity);
         }
         
-        // Create configuration from parsed values
-        this.config = new RandomNetworkConfiguration(
-            numIterations,
-            timeoutMs,
-            problemSeed,
-            algorithmSeed,
-            numAgents,
-            domainSize,
-            minCost,
-            maxCost,
-            networkDensity
-        );
+        try {
+            this.lastRound = Configuration.getIntegerParameter("DCOPTest/lastRound");
+        } catch (Exception e) {
+            System.out.println("Could not read lastRound from config, using default: " + lastRound);
+        }
+        
+        // Read network topology type
+        try {
+            String networkTypeStr = Configuration.getStringParameter("DCOPTest/networkType");
+            networkType = NetworkType.fromString(networkTypeStr);
+            System.out.println("Network type: " + networkType);
+        } catch (Exception e) {
+            System.out.println("Could not read networkType from config, using default: " + networkType);
+        }
+        
+        // Read scale-free parameters (only used if networkType is SCALE_FREE)
+        try {
+            initClique = Configuration.getIntegerParameter("DCOPTest/initClique");
+        } catch (Exception e) {
+            System.out.println("Could not read initClique from config, using default: " + initClique);
+        }
+        
+        try {
+            addition = Configuration.getIntegerParameter("DCOPTest/addition");
+        } catch (Exception e) {
+            System.out.println("Could not read addition from config, using default: " + addition);
+        }
+        
+        // Store simulation parameters for use in test loop
+        this.numAgents = numAgentsConfig;
+        this.numIterations = numIterations;
+        this.timeoutMs = timeoutMs;
+        this.problemSeed = problemSeed;
+        this.algorithmSeed = algorithmSeed;
+        
+        // Store config values for TestConfig export
+        this.domainSizeConfig = domainSize;
+        this.minCostConfig = minCost;
+        this.maxCostConfig = maxCost;
+        this.networkDensityConfig = networkDensity;
+        this.initCliqueConfig = initClique;
+        this.additionConfig = addition;
+        this.networkTypeConfig = networkType;
+        
+        // Read output configuration
+        try {
+            this.outputPrefix = Configuration.getStringParameter("DCOPTest/outputPrefix");
+            System.out.println("Output prefix: " + outputPrefix);
+        } catch (Exception e) {
+            // No prefix specified, use default
+        }
+        
+        try {
+            String exportStr = Configuration.getStringParameter("DCOPTest/exportProblems");
+            this.exportProblems = "true".equalsIgnoreCase(exportStr) || "1".equals(exportStr);
+            if (exportProblems) {
+                System.out.println("Problem export: enabled");
+            }
+        } catch (Exception e) {
+            // Export disabled by default
+        }
+        
+        // Create configuration based on network type
+        if (networkType == NetworkType.SCALE_FREE) {
+            this.config = new ScaleFreeConfiguration(
+                numAgentsConfig,
+                domainSize,
+                minCost,
+                maxCost,
+                initClique,
+                addition
+            );
+            System.out.println("Using Scale-Free network (Barabási-Albert): initClique=" + initClique + ", addition=" + addition);
+        } else {
+            // Default: RANDOM network
+            this.config = new RandomNetworkConfiguration(
+                numAgentsConfig,
+                domainSize,
+                minCost,
+                maxCost,
+                networkDensity
+            );
+            System.out.println("Using Random network: density=" + networkDensity);
+        }
+        
         this.testRunning = false;
         this.currentIteration = 0;
         this.iterationInProgress = false;
@@ -146,6 +250,10 @@ public class CustomGlobal extends AbstractCustomGlobal {
                 this.dsaStochastic = Configuration.getDoubleParameter("DCOPTest/dsaStochastic");
                 System.out.println("Stochastic parameter: " + dsaStochastic);
             }
+            
+            if (selectedAlgorithm == AlgorithmType.MAXSUM || selectedAlgorithm == AlgorithmType.PMAXSUM) {
+                System.out.println("Last round: " + lastRound);
+            }
         } catch (Exception e) {
             // Default to BASIC if not specified or error
             System.out.println("Could not read algorithm config, defaulting to BASIC. Error: " + e.getMessage());
@@ -155,7 +263,7 @@ public class CustomGlobal extends AbstractCustomGlobal {
     
     /**
      * Determines if the simulation has terminated.
-     * Checks if current iteration has reached its timeout.
+     * Delegates to round-based or timeout-based halting depending on configuration.
      */
     @Override
     public boolean hasTerminated() {
@@ -163,15 +271,75 @@ public class CustomGlobal extends AbstractCustomGlobal {
             return false; // Not running an iteration
         }
         
-        // Check if iteration timeout has been reached
-        long elapsed = System.currentTimeMillis() - iterationStartTime;
-        if (elapsed >= iterationTimeoutMs) {
-            // Timeout reached - finish this iteration and move to next
-            finishCurrentIteration();
-            return false; // Continue simulation for next iteration
+        // Check termination condition based on mode
+        if (lastRound > 0) {
+            return checkRoundBasedHalting();
+        } else {
+            return checkTimeoutBasedHalting();
+        }
+    }
+    
+    /**
+     * Checks if all agents have reached the configured last round.
+     * 
+     * @return false (simulation continues for next iteration or keeps running)
+     */
+    private boolean checkRoundBasedHalting() {
+        boolean allAgentsReady = true;
+        int minRound = Integer.MAX_VALUE;
+        
+        Enumeration<?> nodeEnum = Tools.getNodeList().getNodeEnumeration();
+        while (nodeEnum.hasMoreElements()) {
+            IDCOPAgent agent = (IDCOPAgent) nodeEnum.nextElement();
+            int agentId = agent.getID();
+            
+            // Only check actual agents (ID 1 to N), skip function nodes
+            if (agentId >= 1 && agentId <= numAgents) {
+                int currentRound = agent.getProperty("rounds");
+                minRound = Math.min(minRound, currentRound);
+                if (currentRound < lastRound) {
+                    allAgentsReady = false;
+                }
+            }
         }
         
-        return false;
+        if (allAgentsReady && minRound >= lastRound) {
+            System.out.println("All agents reached round " + minRound + " (last round: " + lastRound + ") - halting");
+            finishCurrentIteration();
+        }
+        
+        return false; // Continue simulation for next iteration
+    }
+    
+    /**
+     * Checks if the iteration timeout has been reached.
+     * 
+     * @return false (simulation continues for next iteration or keeps running)
+     */
+    private boolean checkTimeoutBasedHalting() {
+        long elapsed = System.currentTimeMillis() - iterationStartTime;
+        if (elapsed >= iterationTimeoutMs) {
+            finishCurrentIteration();
+        }
+        
+        return false; // Continue simulation for next iteration
+    }
+    
+    /**
+     * Get agent by DCOP ID (1-based).
+     * 
+     * @param agentId The agent ID (1 to N)
+     * @return The agent, or null if not found
+     */
+    private IDCOPAgent getAgentById(int agentId) {
+        Enumeration<?> nodeEnum = Tools.getNodeList().getNodeEnumeration();
+        while (nodeEnum.hasMoreElements()) {
+            IDCOPAgent agent = (IDCOPAgent) nodeEnum.nextElement();
+            if (agent.getID() == agentId) {
+                return agent;
+            }
+        }
+        return null;
     }
     
     /**
@@ -207,6 +375,10 @@ public class CustomGlobal extends AbstractCustomGlobal {
                 return new PDSANetworkBuilder(algorithmSeed, dsaStochastic);
             case PMGM:
                 return new PMGMNetworkBuilder(algorithmSeed);
+            case PMAXSUM:
+                return new PMaxSumNetworkBuilder(algorithmSeed, lastRound);
+            case MAXSUM:
+                return new MaxSumNetworkBuilder(algorithmSeed, lastRound);
             default:
                 throw new IllegalArgumentException("Unknown algorithm: " + algorithm);
         }
@@ -249,6 +421,24 @@ public class CustomGlobal extends AbstractCustomGlobal {
     }
     
     /**
+     * Custom button to start DCOP testing with P-MAXSUM algorithm.
+     */
+    @CustomButton(buttonText="Run DCOP Test (P-MAXSUM)", toolTipText="Start DCOP test with privacy-preserving P-MAXSUM algorithm (Paillier)")
+    public void runPMaxSumTest() {
+        selectedAlgorithm = AlgorithmType.PMAXSUM;
+        runDCOPTest();
+    }
+    
+    /**
+     * Custom button to start DCOP testing with vanilla Max-Sum algorithm.
+     */
+    @CustomButton(buttonText="Run DCOP Test (MAXSUM)", toolTipText="Start DCOP test with vanilla Max-Sum algorithm (no privacy)")
+    public void runMaxSumTest() {
+        selectedAlgorithm = AlgorithmType.MAXSUM;
+        runDCOPTest();
+    }
+    
+    /**
      * Runs DCOP testing with the selected algorithm.
      * Initializes the test suite and starts the first iteration.
      */
@@ -270,9 +460,25 @@ public class CustomGlobal extends AbstractCustomGlobal {
         // Initialize test state
         testRunning = true;
         currentIteration = 0;
-        totalIterations = config.numIterations;
+        totalIterations = this.numIterations;
         results = new TestResults(config);
         iterationActualRuntimes = new long[totalIterations];
+        
+        // Set up TestConfig for output
+        TestResults.TestConfig testConfig = new TestResults.TestConfig();
+        testConfig.algorithm = selectedAlgorithm.name();
+        testConfig.networkType = networkTypeConfig.name();
+        testConfig.numAgents = numAgents;
+        testConfig.domainSize = domainSizeConfig;
+        testConfig.timeoutSec = (int)(timeoutMs / 1000);
+        testConfig.numProblems = totalIterations;
+        testConfig.minCost = minCostConfig;
+        testConfig.maxCost = maxCostConfig;
+        testConfig.networkDensity = networkDensityConfig;
+        testConfig.initClique = initCliqueConfig;
+        testConfig.addition = additionConfig;
+        testConfig.problemSeed = problemSeed;
+        results.setTestConfig(testConfig);
         
         // Start first iteration
         startIteration();
@@ -292,20 +498,56 @@ public class CustomGlobal extends AbstractCustomGlobal {
         System.out.println("\n--- Iteration " + (currentIteration + 1) + " ---");
         
         // Calculate seeds for this iteration (0-based currentIteration)
-        long problemSeed = config.problemSeed + currentIteration;
-        long algorithmSeed = config.algorithmSeed + currentIteration;
+        long iterProblemSeed = this.problemSeed + currentIteration;
+        long iterAlgorithmSeed = this.algorithmSeed + currentIteration;
+        
+        // Store current problem seed for results tracking
+        this.currentProblemSeed = iterProblemSeed;
         
         // Generate new DCOP problem using configuration
-        currentProblem = config.generateProblem(problemSeed);
+        currentProblem = config.generateProblem(iterProblemSeed);
         System.out.println("Generated problem: " + currentProblem);
         
         // Build network from problem using selected algorithm
-        IDCOPNetworkBuilder networkBuilder = createNetworkBuilder(selectedAlgorithm, algorithmSeed);
-        DCOPNetwork network = networkBuilder.buildNetwork(currentProblem);
+        currentNetworkBuilder = createNetworkBuilder(selectedAlgorithm, iterAlgorithmSeed);
+        DCOPNetwork network = currentNetworkBuilder.buildNetwork(currentProblem);
         System.out.println("Built network: " + network + " with " + selectedAlgorithm + " algorithm");
         
         // Deploy network to Sinalgo runtime
         deployNetwork(network);
+
+     
+        // TODO: REFACTOR - This two-phase wiring (buildNetwork + wireNetwork) is needed because
+        // Sinalgo assigns node IDs during deployment, not during node creation. Consider:
+        // 1. Moving wireNetwork() logic into the network builders
+        // 2. Having network builders create Sinalgo edges directly (not just in deployNetwork)
+        // 3. For Max-Sum, only create agent↔function edges instead of full mesh
+        // See also: deployNetwork() full mesh creation which could be algorithm-specific
+        
+        // Special handling for MAXSUM/P-MAXSUM: wire brains to Sinalgo node IDs after deployment
+        if (selectedAlgorithm == AlgorithmType.PMAXSUM && currentNetworkBuilder instanceof PMaxSumNetworkBuilder) {
+            PMaxSumNetworkBuilder pmaxsumBuilder = (PMaxSumNetworkBuilder) currentNetworkBuilder;
+            java.util.Map<Integer, Integer> nodeIdMap = new java.util.HashMap<>();
+            int idx = 0;
+            for (IDCOPAgent agent : network) {
+                Node node = (Node) agent;
+                nodeIdMap.put(idx, node.ID);
+                idx++;
+            }
+            pmaxsumBuilder.wireNetwork(currentProblem, nodeIdMap);
+            System.out.println("Wired P-MAXSUM brains to Sinalgo node IDs");
+        } else if (selectedAlgorithm == AlgorithmType.MAXSUM && currentNetworkBuilder instanceof MaxSumNetworkBuilder) {
+            MaxSumNetworkBuilder maxsumBuilder = (MaxSumNetworkBuilder) currentNetworkBuilder;
+            java.util.Map<Integer, Integer> nodeIdMap = new java.util.HashMap<>();
+            int idx = 0;
+            for (IDCOPAgent agent : network) {
+                Node node = (Node) agent;
+                nodeIdMap.put(idx, node.ID);
+                idx++;
+            }
+            maxsumBuilder.wireNetwork(currentProblem, nodeIdMap);
+            System.out.println("Wired MAXSUM brains to Sinalgo node IDs");
+        }
         
         // Start all agents
         Enumeration<?> nodeEnum = Tools.getNodeList().getNodeEnumeration();
@@ -315,12 +557,16 @@ public class CustomGlobal extends AbstractCustomGlobal {
         }
         
         // Set up iteration state - start timer immediately
-        iterationTimeoutMs = config.timeoutMs;
+        iterationTimeoutMs = this.timeoutMs;
         iterationInProgress = true;
         iterationStartTime = System.currentTimeMillis();  // Start timer NOW
 
         
-        System.out.println("Running iteration for up to " + (iterationTimeoutMs / 1000) + " seconds...");
+        if (lastRound > 0) {
+            System.out.println("Running iteration until agent 1 completes last round (" + lastRound + ")...");
+        } else {
+            System.out.println("Running iteration for up to " + (iterationTimeoutMs / 1000) + " seconds...");
+        }
         
         // The simulation will now run rounds until hasTerminated() returns true
         // For batch mode, the runtime is already running
@@ -349,18 +595,22 @@ public class CustomGlobal extends AbstractCustomGlobal {
             agent.stopAlgorithm();
         }
         
-        // Collect agent values
-        int[] agentValues = new int[config.numAgents + 1]; // Size N+1, index 0 unused
+        // Collect agent values (only from actual agents, skip function nodes for P-MAXSUM)
+        int[] agentValues = new int[numAgents + 1]; // Size N+1, index 0 unused
         nodeEnum = Tools.getNodeList().getNodeEnumeration();
         while (nodeEnum.hasMoreElements()) {
             IDCOPAgent agent = (IDCOPAgent) nodeEnum.nextElement();
-            agentValues[agent.getID()] = agent.getSelectedValue();
+            int agentId = agent.getID();
+            // Only collect from agent nodes (ID 1 to N), skip function nodes
+            if (agentId >= 1 && agentId <= numAgents) {
+                agentValues[agentId] = agent.getSelectedValue();
+            }
         }
         
         // Calculate total cost
         int totalCost = currentProblem.getTotalCost(agentValues);
         
-        // Collect round statistics
+        // Collect round statistics only from actual agents
         int minRounds = Integer.MAX_VALUE;
         int maxRoundsActual = 0;
         int totalRounds = 0;
@@ -368,19 +618,27 @@ public class CustomGlobal extends AbstractCustomGlobal {
         nodeEnum = Tools.getNodeList().getNodeEnumeration();
         while (nodeEnum.hasMoreElements()) {
             IDCOPAgent agent = (IDCOPAgent) nodeEnum.nextElement();
-            int rounds = agent.getProperty("rounds");
-            if (rounds >= 0) {  // Only count if supported
-                totalRounds += rounds;
-                minRounds = Math.min(minRounds, rounds);
-                maxRoundsActual = Math.max(maxRoundsActual, rounds);
-                agentsWithRounds++;
+            int agentId = agent.getID();
+            // Only collect from agent nodes (ID 1 to N), skip function nodes
+            if (agentId >= 1 && agentId <= numAgents) {
+                int rounds = agent.getProperty("rounds");
+                if (rounds >= 0) {  // Only count if supported
+                    totalRounds += rounds;
+                    minRounds = Math.min(minRounds, rounds);
+                    maxRoundsActual = Math.max(maxRoundsActual, rounds);
+                    agentsWithRounds++;
+                }
             }
         }
         
         // Store result (use 1-based iteration number for display)
         // If no agents reported rounds, use -1 to indicate algorithm doesn't use rounds
         int maxRoundsForResult = (agentsWithRounds > 0) ? maxRoundsActual : -1;
-        results.addResult(currentIteration + 1, actualRuntime, totalCost, maxRoundsForResult, agentValues);
+        
+        // Pass problem for export if enabled (otherwise pass null to save memory)
+        DCOPProblem problemToStore = exportProblems ? currentProblem : null;
+        results.addResult(currentIteration + 1, currentProblemSeed, actualRuntime, totalCost, 
+                          maxRoundsForResult, agentValues, problemToStore);
         
         // Log iteration result (no dialog - just console output)
         System.out.println("Iteration " + (currentIteration + 1) + "/" + totalIterations + 
@@ -447,15 +705,40 @@ public class CustomGlobal extends AbstractCustomGlobal {
         
         // Save and display results
         try {
-            // Create logs directory if it doesn't exist
+            // Create results and logs directories if they don't exist
+            File resultsDir = new File("results");
+            if (!resultsDir.exists()) {
+                resultsDir.mkdirs();
+            }
             File logsDir = new File("logs");
             if (!logsDir.exists()) {
                 logsDir.mkdirs();
             }
             
-            String filename = TestResults.generateTimestampedFilename(selectedAlgorithm.name());
             results.printSummary();
-            results.writeToCSV(filename);
+            
+            // Determine output filenames
+            String resultsFilename;
+            String problemsFilename = null;
+            
+            if (outputPrefix != null && !outputPrefix.isEmpty()) {
+                // Use prefix-based naming for structured output
+                resultsFilename = TestResults.generateFilename(outputPrefix, "results");
+                if (exportProblems) {
+                    problemsFilename = TestResults.generateFilename(outputPrefix, "problems");
+                }
+                // Write with config header
+                results.writeResultsWithConfig(resultsFilename);
+            } else {
+                // Legacy naming
+                resultsFilename = TestResults.generateTimestampedFilename(selectedAlgorithm.name());
+                results.writeToCSV(resultsFilename);
+            }
+            
+            // Export problems if enabled
+            if (exportProblems && problemsFilename != null) {
+                results.writeProblemsToCSV(problemsFilename);
+            }
             
             if (Global.isGuiMode) {
                 JOptionPane.showMessageDialog(null,
@@ -467,7 +750,7 @@ public class CustomGlobal extends AbstractCustomGlobal {
                                   totalIterations,
                                   results.getAverageCost(),
                                   results.getAverageRuntime(),
-                                  filename),
+                                  resultsFilename),
                     "DCOP Test Complete",
                     JOptionPane.INFORMATION_MESSAGE);
             } else {
