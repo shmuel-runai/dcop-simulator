@@ -2,7 +2,7 @@
 #SBATCH --job-name=dcop_comparison
 #SBATCH --output=slurm_logs/dcop_%j.out
 #SBATCH --error=slurm_logs/dcop_%j.err
-#SBATCH --time=48:00:00
+#SBATCH --time=240:00:00   # 10 days (cluster has no limit)
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=1
 
