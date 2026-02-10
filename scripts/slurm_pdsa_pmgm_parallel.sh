@@ -2,23 +2,25 @@
 #SBATCH --job-name=dcop_array
 #SBATCH --output=slurm_logs/dcop_%A_%a.out
 #SBATCH --error=slurm_logs/dcop_%A_%a.err
-#SBATCH --array=1-120
+#SBATCH --array=1-180
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=8
 #SBATCH --nodes=1
 
-# DCOP Algorithm Comparison: PDSA vs PMGM (PARALLEL VERSION)
+# DCOP Algorithm Comparison: PDSA vs PMGM vs PMAXSUM (PARALLEL VERSION)
 #
-# Runs 120 configurations in parallel using Slurm job arrays.
-# Each array task runs one configuration (algorithm + network + timeout + agents).
+# Runs 180 configurations in parallel using Slurm job arrays.
+# Each array task runs one configuration (algorithm + network + timeout/rounds + agents).
 #
 # Usage:
 #   sbatch scripts/slurm_pdsa_pmgm_parallel.sh [PROJECT_DIR]
 #
-# Test Matrix (120 total):
-# - Algorithms: PDSA, PMGM (2)
+# Test Matrix (180 total):
+# - Timeout-based algorithms: PDSA, PMGM (2) × 2 networks × 3 timeouts × 10 agents = 120
+# - Round-based algorithms: PMAXSUM (1) × 2 networks × 3 rounds × 10 agents = 60
 # - Network types: RANDOM, SCALE_FREE (2)
-# - Timeouts: 60s, 120s, 180s (3)
+# - Timeouts: 60s, 120s, 180s (for PDSA, PMGM)
+# - Rounds: 10, 20, 30 (for PMAXSUM)
 # - Agents: 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 (10)
 # - Problems per config: 50
 
@@ -32,9 +34,11 @@ cd "$PROJECT_DIR"
 mkdir -p results logs slurm_logs
 
 # Configuration arrays
-ALGORITHMS=(PDSA PMGM)
+TIMEOUT_ALGORITHMS=(PDSA PMGM)     # Use timeout-based halting
+ROUND_ALGORITHMS=(PMAXSUM)          # Use round-based halting
 NETWORK_TYPES=(RANDOM SCALE_FREE)
-TIMEOUTS=(60 120 180)
+TIMEOUTS=(60 120 180)               # For PDSA, PMGM
+ROUNDS=(10 20 30)                   # For PMAXSUM
 AGENT_COUNTS=(10 20 30 40 50 60 70 80 90 100)
 
 # Fixed parameters
@@ -53,45 +57,77 @@ SCALEFREE_ADD=2
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RESULTS_BASE="comparison_${SLURM_ARRAY_JOB_ID:-$TIMESTAMP}"
 
-# Map array task ID (1-120) to configuration
-# Order: algo -> network -> timeout -> agents
+# Map array task ID (1-180) to configuration
+# Tasks 1-120: timeout-based algorithms (PDSA, PMGM)
+# Tasks 121-180: round-based algorithms (PMAXSUM)
 TASK_ID=${SLURM_ARRAY_TASK_ID:-1}
 
-# Calculate indices (0-based)
-IDX=$((TASK_ID - 1))
+NUM_AGENTS_COUNT=${#AGENT_COUNTS[@]}           # 10
+NUM_TIMEOUTS=${#TIMEOUTS[@]}                   # 3
+NUM_ROUNDS=${#ROUNDS[@]}                       # 3
+NUM_NETWORKS=${#NETWORK_TYPES[@]}              # 2
+NUM_TIMEOUT_ALGOS=${#TIMEOUT_ALGORITHMS[@]}    # 2
+NUM_ROUND_ALGOS=${#ROUND_ALGORITHMS[@]}        # 1
 
-NUM_AGENTS_COUNT=${#AGENT_COUNTS[@]}    # 10
-NUM_TIMEOUTS=${#TIMEOUTS[@]}            # 3
-NUM_NETWORKS=${#NETWORK_TYPES[@]}       # 2
-NUM_ALGOS=${#ALGORITHMS[@]}             # 2
+# Timeout-based configs: 2 algos × 2 networks × 3 timeouts × 10 agents = 120
+TIMEOUT_CONFIGS=$((NUM_TIMEOUT_ALGOS * NUM_NETWORKS * NUM_TIMEOUTS * NUM_AGENTS_COUNT))
 
-# Decompose task ID into configuration indices
-AGENT_IDX=$((IDX % NUM_AGENTS_COUNT))
-IDX=$((IDX / NUM_AGENTS_COUNT))
+if [[ $TASK_ID -le $TIMEOUT_CONFIGS ]]; then
+    # Timeout-based algorithm
+    HALT_TYPE="timeout"
+    IDX=$((TASK_ID - 1))
+    
+    AGENT_IDX=$((IDX % NUM_AGENTS_COUNT))
+    IDX=$((IDX / NUM_AGENTS_COUNT))
+    
+    HALT_IDX=$((IDX % NUM_TIMEOUTS))
+    IDX=$((IDX / NUM_TIMEOUTS))
+    
+    NETWORK_IDX=$((IDX % NUM_NETWORKS))
+    IDX=$((IDX / NUM_NETWORKS))
+    
+    ALGO_IDX=$((IDX % NUM_TIMEOUT_ALGOS))
+    
+    ALGO=${TIMEOUT_ALGORITHMS[$ALGO_IDX]}
+    HALT_VALUE=${TIMEOUTS[$HALT_IDX]}
+else
+    # Round-based algorithm
+    HALT_TYPE="round"
+    IDX=$((TASK_ID - TIMEOUT_CONFIGS - 1))
+    
+    AGENT_IDX=$((IDX % NUM_AGENTS_COUNT))
+    IDX=$((IDX / NUM_AGENTS_COUNT))
+    
+    HALT_IDX=$((IDX % NUM_ROUNDS))
+    IDX=$((IDX / NUM_ROUNDS))
+    
+    NETWORK_IDX=$((IDX % NUM_NETWORKS))
+    IDX=$((IDX / NUM_NETWORKS))
+    
+    ALGO_IDX=$((IDX % NUM_ROUND_ALGOS))
+    
+    ALGO=${ROUND_ALGORITHMS[$ALGO_IDX]}
+    HALT_VALUE=${ROUNDS[$HALT_IDX]}
+fi
 
-TIMEOUT_IDX=$((IDX % NUM_TIMEOUTS))
-IDX=$((IDX / NUM_TIMEOUTS))
-
-NETWORK_IDX=$((IDX % NUM_NETWORKS))
-IDX=$((IDX / NUM_NETWORKS))
-
-ALGO_IDX=$((IDX % NUM_ALGOS))
-
-# Get actual values
-ALGO=${ALGORITHMS[$ALGO_IDX]}
 NET_TYPE=${NETWORK_TYPES[$NETWORK_IDX]}
-TIMEOUT=${TIMEOUTS[$TIMEOUT_IDX]}
 NUM_AGENTS=${AGENT_COUNTS[$AGENT_IDX]}
 
 # Generate output prefix
-PREFIX="${RESULTS_BASE}_${ALGO}_${NET_TYPE}_t${TIMEOUT}_n${NUM_AGENTS}"
+if [[ "$HALT_TYPE" == "timeout" ]]; then
+    PREFIX="${RESULTS_BASE}_${ALGO}_${NET_TYPE}_t${HALT_VALUE}_n${NUM_AGENTS}"
+    HALT_DISPLAY="Timeout: ${HALT_VALUE}s"
+else
+    PREFIX="${RESULTS_BASE}_${ALGO}_${NET_TYPE}_r${HALT_VALUE}_n${NUM_AGENTS}"
+    HALT_DISPLAY="Rounds: ${HALT_VALUE}"
+fi
 
 echo "=========================================="
-echo "DCOP Parallel Test - Task $TASK_ID/120"
+echo "DCOP Parallel Test - Task $TASK_ID/180"
 echo "=========================================="
 echo "Algorithm:    $ALGO"
 echo "Network:      $NET_TYPE"
-echo "Timeout:      ${TIMEOUT}s"
+echo "$HALT_DISPLAY"
 echo "Agents:       $NUM_AGENTS"
 echo "Problems:     $NUM_PROBLEMS"
 echo "Output:       $PREFIX"
@@ -105,12 +141,18 @@ CMD="$CMD --algorithm $ALGO"
 CMD="$CMD --network-type $NET_TYPE"
 CMD="$CMD --num-agents $NUM_AGENTS"
 CMD="$CMD --domain-size $DOMAIN_SIZE"
-CMD="$CMD --timeout $TIMEOUT"
 CMD="$CMD --num-problems $NUM_PROBLEMS"
 CMD="$CMD --min-cost $MIN_COST"
 CMD="$CMD --max-cost $MAX_COST"
 CMD="$CMD --problem-seed $PROBLEM_SEED"
 CMD="$CMD --output-prefix $PREFIX"
+
+# Halting condition
+if [[ "$HALT_TYPE" == "timeout" ]]; then
+    CMD="$CMD --timeout $HALT_VALUE"
+else
+    CMD="$CMD --last-round $HALT_VALUE"
+fi
 
 # Network-specific parameters
 if [[ "$NET_TYPE" == "RANDOM" ]]; then
@@ -120,7 +162,8 @@ else
     CMD="$CMD --addition $SCALEFREE_ADD"
 fi
 
-# Export problems only for task 1 (RANDOM) and task 61 (SCALE_FREE first)
+# Export problems only for task 1 (RANDOM first) and task 61 (SCALE_FREE first among timeout algos)
+# and task 121 (first PMAXSUM/RANDOM) - but we can rely on same seed generating same problems
 if [[ $TASK_ID -eq 1 ]] || [[ $TASK_ID -eq 61 ]]; then
     CMD="$CMD --export-problems"
     echo "Exporting problems for verification"
@@ -133,5 +176,5 @@ $CMD
 
 echo ""
 echo "=========================================="
-echo "Task $TASK_ID Complete!"
+echo "Task $TASK_ID/180 Complete!"
 echo "=========================================="

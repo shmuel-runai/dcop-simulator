@@ -183,13 +183,20 @@ Edit `scripts/slurm_pdsa_pmgm_comparison.sh` to modify:
 
 ```bash
 # Algorithms to test
-ALGORITHMS="PDSA PMGM"
+# Timeout-based algorithms (use --timeout parameter)
+TIMEOUT_ALGORITHMS="PDSA PMGM"
+
+# Round-based algorithms (use --last-round parameter)
+ROUND_ALGORITHMS="PMAXSUM"
 
 # Network topologies
 NETWORK_TYPES="RANDOM SCALE_FREE"
 
-# Timeouts in seconds
+# Timeouts in seconds (for PDSA, PMGM)
 TIMEOUTS="60 120 180"
+
+# Rounds (for PMAXSUM)
+ROUNDS="10 20 30"
 
 # Agent counts
 AGENT_COUNTS="10 20 30 40 50 60 70 80 90 100"
@@ -197,6 +204,14 @@ AGENT_COUNTS="10 20 30 40 50 60 70 80 90 100"
 # Problems per configuration
 NUM_PROBLEMS=50
 ```
+
+### Algorithm Types
+
+| Algorithm | Type | Halting | Notes |
+|-----------|------|---------|-------|
+| PDSA | Timeout-based | `--timeout <seconds>` | Privacy-preserving DSA |
+| PMGM | Timeout-based | `--timeout <seconds>` | Privacy-preserving MGM |
+| PMAXSUM | Round-based | `--last-round <n>` | Privacy-preserving Max-Sum |
 
 ---
 
@@ -220,18 +235,34 @@ For larger agent counts (80-100), you may need more memory:
 
 ## Parallel Execution (Advanced)
 
-To run configurations in parallel instead of sequentially, create a job array:
+Use the parallel script to run all 180 configurations simultaneously:
 
 ```bash
-#!/bin/bash
-#SBATCH --job-name=dcop_array
-#SBATCH --array=1-120        # 120 configurations
-#SBATCH --output=slurm_logs/dcop_%A_%a.out
-#SBATCH --time=02:00:00
-#SBATCH --mem=8G
+# Submit all configurations as a job array
+sbatch scripts/slurm_pdsa_pmgm_parallel.sh
 
-# Map array index to configuration
-# (requires a config file or calculation logic)
+# This creates 180 parallel jobs:
+# - Tasks 1-120: PDSA and PMGM (timeout-based)
+# - Tasks 121-180: PMAXSUM (round-based)
+```
+
+The parallel script (`slurm_pdsa_pmgm_parallel.sh`) automatically maps each array task ID to a unique configuration:
+
+```bash
+#SBATCH --array=1-180        # 180 configurations total
+```
+
+To run a subset of tasks:
+
+```bash
+# Only PDSA and PMGM (tasks 1-120)
+sbatch --array=1-120 scripts/slurm_pdsa_pmgm_parallel.sh
+
+# Only PMAXSUM (tasks 121-180)
+sbatch --array=121-180 scripts/slurm_pdsa_pmgm_parallel.sh
+
+# Only specific agent counts (e.g., 10, 50, 100 agents)
+sbatch --array=1,5,10,61,65,70,121,125,130 scripts/slurm_pdsa_pmgm_parallel.sh
 ```
 
 ---
@@ -281,8 +312,16 @@ results/
 ├── test_comparison_YYYYMMDD_HHMMSS_PDSA_RANDOM_t60_n10_problems.csv  # (first run only)
 ├── test_comparison_YYYYMMDD_HHMMSS_PDSA_RANDOM_t60_n20_results.csv
 ├── ...
-└── test_comparison_YYYYMMDD_HHMMSS_PMGM_SCALE_FREE_t180_n100_results.csv
+├── test_comparison_YYYYMMDD_HHMMSS_PMGM_SCALE_FREE_t180_n100_results.csv
+├── test_comparison_YYYYMMDD_HHMMSS_PMAXSUM_RANDOM_r10_n10_results.csv  # Note: r10 = 10 rounds
+├── test_comparison_YYYYMMDD_HHMMSS_PMAXSUM_RANDOM_r20_n50_results.csv
+├── ...
+└── test_comparison_YYYYMMDD_HHMMSS_PMAXSUM_SCALE_FREE_r30_n100_results.csv
 ```
+
+**Naming convention:**
+- `t60` = timeout 60 seconds (PDSA, PMGM)
+- `r10` = 10 rounds (PMAXSUM)
 
 Each results file contains:
 - Configuration header (algorithm, network, agents, etc.)
