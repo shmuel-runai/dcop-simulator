@@ -4,7 +4,8 @@
 #SBATCH --error=slurm_logs/dcop_%A_%a.err
 #SBATCH --array=1-120
 #SBATCH --mem=16G
-#SBATCH --cpus-per-task=1
+#SBATCH --cpus-per-task=8
+#SBATCH --nodes=1
 
 # DCOP Algorithm Comparison: PDSA vs PMGM (PARALLEL VERSION)
 #
