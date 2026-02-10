@@ -32,9 +32,24 @@ import dcop.common.nodes.IDCOPAgent;
  */
 public class PMaxSumNetworkBuilder implements IDCOPNetworkBuilder {
     
-    // Prime for field arithmetic - should be large enough for computations
-    // Using a known safe prime
-    private static final BigInteger DEFAULT_PRIME = new BigInteger("2147483647"); // 2^31 - 1
+    // Prime for field arithmetic
+    // CRITICAL: Must be large enough to avoid overflow during Max-Sum iterations.
+    // The reference implementation uses nsquare - 1 from a Paillier instance.
+    // Using 2^31 - 1 was a BUG that caused incorrect R value computations.
+    private static BigInteger DEFAULT_PRIME = null;
+    
+    /**
+     * Gets the default prime for P-MAXSUM computations.
+     * Uses nsquare - 1 from a Paillier instance to ensure sufficient range.
+     */
+    private static synchronized BigInteger getDefaultPrime() {
+        if (DEFAULT_PRIME == null) {
+            // Create a temporary Paillier instance to get nsquare
+            Paillier tempPaillier = new Paillier();
+            DEFAULT_PRIME = tempPaillier.nsquare.subtract(BigInteger.ONE);
+        }
+        return DEFAULT_PRIME;
+    }
     
     private final long algorithmSeed;
     private final int lastRound;
@@ -55,7 +70,7 @@ public class PMaxSumNetworkBuilder implements IDCOPNetworkBuilder {
     public PMaxSumNetworkBuilder(long algorithmSeed, int lastRound) {
         this.algorithmSeed = algorithmSeed;
         this.lastRound = lastRound;
-        this.prime = DEFAULT_PRIME;
+        this.prime = getDefaultPrime();
     }
     
     /**

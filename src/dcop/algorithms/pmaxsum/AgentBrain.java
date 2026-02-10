@@ -262,7 +262,11 @@ public class AgentBrain implements IMaxSumBrain {
         BigInteger[] remoteQs = new BigInteger[domainSize];
         for (int x = 0; x < domainSize; x++) {
             localQs[x] = BigInteger.ZERO;
-            remoteQs[x] = BigInteger.ONE;  // Identity for multiplication
+            // Initialize remoteQs with E(0) - encryption of zero.
+            // Using BigInteger.ONE is WRONG because 1 is not a valid Paillier ciphertext.
+            // When there are no other function neighbors, remoteQs stays at this value
+            // and must decrypt to 0.
+            remoteQs[x] = paillierMgr.Encryption(fPaillierKey(agentIndex), BigInteger.ZERO);
         }
         
         // Sum R's from all other function neighbors (excluding otherId)
@@ -289,7 +293,9 @@ public class AgentBrain implements IMaxSumBrain {
                     continue;
                 }
                 // otherR is encrypted with F_agentIndex, multiply (homomorphic add)
-                remoteQs[x] = remoteQs[x].multiply(otherR).mod(paillierMgr.get(fPaillierKey(agentIndex)).nsquare);
+                // MUST use F_agentIndex's nsquare for correct Paillier homomorphic addition
+                BigInteger nsquare = paillierMgr.get(fPaillierKey(agentIndex)).nsquare;
+                remoteQs[x] = remoteQs[x].multiply(otherR).mod(nsquare);
             }
         }
         
@@ -313,9 +319,12 @@ public class AgentBrain implements IMaxSumBrain {
         
         for (int i = 0; i < msg.Ws.length; i++) {
             // Find the minimum decrypted value in this row
-            BigInteger min = paillierMgr.Decryption(ePaillierKey(agentIndex), msg.Ws[i][0]);
+            // CRITICAL BUG FIX: Ws were encrypted with ePaillierKey(msg.source) in kickStartProtocol2,
+            // so we must decrypt with the same key, NOT ePaillierKey(agentIndex).
+            // The reference implementation had this same bug.
+            BigInteger min = paillierMgr.Decryption(ePaillierKey(msg.source), msg.Ws[i][0]);
             for (int j = 1; j < msg.Ws[i].length; j++) {
-                BigInteger value = paillierMgr.Decryption(ePaillierKey(agentIndex), msg.Ws[i][j]);
+                BigInteger value = paillierMgr.Decryption(ePaillierKey(msg.source), msg.Ws[i][j]);
                 min = min.min(value);
             }
             
@@ -351,13 +360,17 @@ public class AgentBrain implements IMaxSumBrain {
         }
         
         // Generate shifter to hide actual values
+        // CRITICAL BUG FIX: encShifter must be encrypted with F_agentIndex (not E_agentIndex)
+        // because Ms contains F_agentIndex ciphertexts, and the function will decrypt with F_agentIndex.
+        // Using E_agentIndex here was a bug from the reference implementation.
         BigInteger shifter = BigInteger.valueOf(random.nextInt(Integer.MAX_VALUE)).mod(prime);
-        BigInteger encShifter = paillierMgr.Encryption(ePaillierKey(agentIndex), shifter);
+        BigInteger encShifter = paillierMgr.Encryption(fPaillierKey(agentIndex), shifter);
         
-        // Initialize M array
+        // Initialize M array with E(0) - encryption of zero
+        // Using BigInteger.ONE is WRONG because 1 is not a valid Paillier ciphertext.
         BigInteger[] Ms = new BigInteger[domainSize];
         for (int x = 0; x < domainSize; x++) {
-            Ms[x] = BigInteger.ONE;  // Identity for Paillier multiplication
+            Ms[x] = paillierMgr.Encryption(fPaillierKey(agentIndex), BigInteger.ZERO);
         }
         
         // Pick any function node to send the request to
@@ -397,15 +410,17 @@ public class AgentBrain implements IMaxSumBrain {
                 // === END BUG ===
                 
                 // FIX: Both are ciphertexts encrypted with F_agentIndex, multiply them
+                // MUST use F_agentIndex's nsquare for correct Paillier homomorphic addition
                 BigInteger nsquare = paillierMgr.get(fPaillierKey(agentIndex)).nsquare;
                 Ms[x] = Ms[x].multiply(encLocalR).mod(nsquare).multiply(otherR).mod(nsquare);
             }
         }
         
         // Apply shifter (multiply all Ms by encrypted shifter)
-        BigInteger nsquare = paillierMgr.get(fPaillierKey(agentIndex)).nsquare;
+        // Use F_agentIndex's nsquare for correct Paillier operation
+        BigInteger nsquareForShifter = paillierMgr.get(fPaillierKey(agentIndex)).nsquare;
         for (int x = 0; x < Ms.length; x++) {
-            Ms[x] = Ms[x].multiply(encShifter).mod(nsquare);
+            Ms[x] = Ms[x].multiply(encShifter).mod(nsquareForShifter);
         }
         
         // TODO: Permute Ms for additional privacy

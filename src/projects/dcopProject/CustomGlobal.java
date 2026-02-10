@@ -286,6 +286,7 @@ public class CustomGlobal extends AbstractCustomGlobal {
      */
     private boolean checkRoundBasedHalting() {
         boolean allAgentsReady = true;
+        boolean anyAgentActive = false;
         int minRound = Integer.MAX_VALUE;
         
         Enumeration<?> nodeEnum = Tools.getNodeList().getNodeEnumeration();
@@ -300,11 +301,17 @@ public class CustomGlobal extends AbstractCustomGlobal {
                 if (currentRound < lastRound) {
                     allAgentsReady = false;
                 }
+                // Check if agent is still active (e.g., P-MAXSUM waiting for min index response)
+                if (agent.isActive()) {
+                    anyAgentActive = true;
+                }
             }
         }
         
-        if (allAgentsReady && minRound >= lastRound) {
-            System.out.println("All agents reached round " + minRound + " (last round: " + lastRound + ") - halting");
+        // Only halt when all agents reached last round AND all agents are done
+        // (For P-MAXSUM, agents need one more message exchange after reaching last round)
+        if (allAgentsReady && minRound >= lastRound && !anyAgentActive) {
+            System.out.println("All agents reached round " + minRound + " (last round: " + lastRound + ") and completed - halting");
             finishCurrentIteration();
         }
         

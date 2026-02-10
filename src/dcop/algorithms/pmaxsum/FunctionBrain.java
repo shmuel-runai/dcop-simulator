@@ -291,9 +291,9 @@ public class FunctionBrain implements IMaxSumBrain {
         // Build W matrix [targetDomain][otherDomain]
         BigInteger[][] Ws = new BigInteger[targetDomainSize][otherDomainSize];
         
-        // Get the Paillier instance for otherId (we encrypt with E_otherId)
-        Paillier otherPaillier = paillierMgr.get(ePaillierKey(otherId));
-        BigInteger nsquare = otherPaillier.nsquare;
+        // Note: We use the global prime (= nsquare - 1 from a reference Paillier) for ciphertext
+        // multiplication modulus. This matches the reference implementation which uses a single
+        // global prime for all operations, ensuring consistency.
         
         for (int x = 0; x < targetDomainSize; x++) {
             for (int y = 0; y < otherDomainSize; y++) {
@@ -351,33 +351,23 @@ public class FunctionBrain implements IMaxSumBrain {
                 // - localQ (stored at line 196) is the encrypted local Q (E_source(q_local))
                 // - remoteQ (stored at line 200) is DECRYPTED plaintext
                 
-                // So the fix is: encrypt (shifter + constraint + remoteQ), multiply by localQ
-                BigInteger plaintextSum = shifter.add(otherQ).add(BigInteger.valueOf(constraint)).mod(prime);
+                // === BUG FIX ===
+                // myQ is PLAINTEXT (was decrypted when stored in handleInjectQs line 272-273)
+                // otherQ is CIPHERTEXT (stored directly from msg.local in handleInjectQs line 266-267)
+                //
+                // We want: W = E(shifter + myQ_plaintext + constraint) * otherQ_ciphertext
+                // Which decrypts to: shifter + myQ + constraint + otherQ_decrypted
+                //
+                // Previous buggy code treated them backwards (added ciphertext as plaintext)
+                // === END FIX ===
+                
+                BigInteger plaintextSum = shifter.add(myQ).add(BigInteger.valueOf(constraint)).mod(prime);
                 BigInteger encPlaintextSum = paillierMgr.Encryption(ePaillierKey(otherId), plaintextSum);
                 
-                // myQ is E(q_local) encrypted with E_otherId  
-                // Wait no - myQ was stored from msg.local which is encrypted with E_source
-                // Let me re-read...
-                //
-                // In handleInjectQs:
-                // - msg.local is encrypted with E_source (the sending agent)
-                // - msg.remote is encrypted with F_source (also the sending agent)
-                // 
-                // So qKey(round, msg.source, msg.source, msg.target, x) = E_source(local_q)
-                // And qKey(round, msg.target, msg.source, msg.target, x) = decrypted remote_q
-                //
-                // In kickStartProtocol2:
-                // - targetId is the agent we're computing R for
-                // - otherId is the agent whose Q's we're using
-                //
-                // So myQ = qKey(round, targetId, otherId, targetId, y)
-                //        = Q from otherId's perspective, but for targetId domain
-                // 
-                // Hmm, this is confusing. Let me just follow the reference more closely
-                // and fix the obvious bug of multiplying ciphertext by plaintext.
-                
-                // The key insight: we need HOMOMORPHIC addition, so multiply ciphertexts
-                Ws[x][y] = encPlaintextSum.multiply(myQ).mod(nsquare);
+                // Multiply ciphertexts for homomorphic addition
+                // MUST use E_otherId's nsquare for correct Paillier operation
+                BigInteger nsquare = paillierMgr.get(ePaillierKey(otherId)).nsquare;
+                Ws[x][y] = encPlaintextSum.multiply(otherQ).mod(nsquare);
             }
         }
         
@@ -437,16 +427,18 @@ public class FunctionBrain implements IMaxSumBrain {
         
         int minIndex = 0;
         BigInteger minValue = paillierMgr.Decryption(fPaillierKey(msg.source), msg.m[0]);
+        debug("M[0] decrypted = " + minValue);
         
         for (int x = 1; x < msg.m.length; x++) {
             BigInteger curValue = paillierMgr.Decryption(fPaillierKey(msg.source), msg.m[x]);
+            debug("M[" + x + "] decrypted = " + curValue);
             if (curValue.compareTo(minValue) < 0) {
                 minValue = curValue;
                 minIndex = x;
             }
         }
         
-        debug("Min index: " + minIndex);
+        debug("Min index: " + minIndex + " with value: " + minValue);
         
         MinIndexResponseMessage response = new MinIndexResponseMessage(minIndex);
         transport.sendMessage(response, senderNodeId);
