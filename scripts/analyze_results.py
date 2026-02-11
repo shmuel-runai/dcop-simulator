@@ -1,180 +1,243 @@
 #!/usr/bin/env python3
 """
-Analyze DCOP test results and compare PDSA vs PMGM.
-
-Usage:
-    python scripts/analyze_results.py <results_directory>
+Analyze DCOP comparison results and generate summary tables.
 """
 
-import sys
 import os
+import sys
 import csv
 import re
 from collections import defaultdict
+from pathlib import Path
 
-
-def parse_filename(filename):
-    """Extract configuration from filename."""
-    # Pattern: test_comparison_ID_ALGO_NETWORK_tTIMEOUT_nAGENTS_results.csv
-    # Network can be RANDOM or SCALE_FREE (with underscore)
-    pattern = r'test_comparison_\d+_(\w+)_(RANDOM|SCALE_FREE)_t(\d+)_n(\d+)_results\.csv'
-    match = re.match(pattern, filename)
-    if match:
-        return {
-            'algorithm': match.group(1),
-            'network': match.group(2),
-            'timeout': int(match.group(3)),
-            'agents': int(match.group(4))
-        }
-    return None
-
-
-def read_results(filepath):
-    """Read results from a CSV file and compute averages."""
-    costs = []
-    runtimes = []
+def parse_result_file(filepath):
+    """Parse a single result CSV file."""
+    results = []
+    config = {}
     
     with open(filepath, 'r') as f:
         lines = f.readlines()
     
-    # Find the results section (after "# Results")
-    in_results = False
-    header = None
+    # Parse configuration (line 3)
+    if len(lines) >= 3:
+        config_header = lines[1].strip().split(',')
+        config_values = lines[2].strip().split(',')
+        for i, key in enumerate(config_header):
+            if i < len(config_values):
+                config[key] = config_values[i]
     
-    for line in lines:
+    # Parse results (starting from line 7)
+    for line in lines[6:]:
         line = line.strip()
-        if line == '# Results':
-            in_results = True
+        if not line or line.startswith('#'):
             continue
-        if in_results and header is None:
-            header = line.split(',')
-            continue
-        if in_results and line and not line.startswith('#'):
-            parts = line.split(',')
-            if len(parts) >= 4:
-                try:
-                    cost = int(parts[2])  # final_cost
-                    runtime = int(parts[4])  # runtime_ms
-                    costs.append(cost)
-                    runtimes.append(runtime)
-                except (ValueError, IndexError):
-                    pass
+        parts = line.split(',')
+        if len(parts) >= 5:
+            try:
+                results.append({
+                    'problem_id': int(parts[0]),
+                    'seed': int(parts[1]),
+                    'final_cost': int(parts[2]),
+                    'rounds': int(parts[3]),
+                    'runtime_ms': int(parts[4])
+                })
+            except ValueError:
+                continue
     
-    if not costs:
-        return None
-    
-    return {
-        'avg_cost': sum(costs) / len(costs),
-        'min_cost': min(costs),
-        'max_cost': max(costs),
-        'avg_runtime_ms': sum(runtimes) / len(runtimes),
-        'count': len(costs)
-    }
+    return config, results
 
+def analyze_directory(results_dir):
+    """Analyze all result files in a directory."""
+    data = []
+    
+    for filepath in Path(results_dir).glob('*_results.csv'):
+        config, results = parse_result_file(filepath)
+        
+        if not results:
+            continue
+        
+        # Extract info from filename as backup
+        filename = filepath.name
+        match = re.search(r'_(PDSA|PMGM)_(RANDOM|SCALE_FREE)_t(\d+)_n(\d+)_', filename)
+        
+        algo = config.get('algorithm', match.group(1) if match else 'UNKNOWN')
+        network = config.get('network_type', match.group(2) if match else 'UNKNOWN')
+        timeout = int(config.get('timeout_sec', match.group(3) if match else 0))
+        agents = int(config.get('num_agents', match.group(4) if match else 0))
+        
+        # Calculate statistics
+        costs = [r['final_cost'] for r in results]
+        rounds = [r['rounds'] for r in results]
+        zero_rounds = sum(1 for r in rounds if r == 0)
+        
+        data.append({
+            'algorithm': algo,
+            'network': network,
+            'timeout': timeout,
+            'agents': agents,
+            'num_problems': len(results),
+            'avg_cost': sum(costs) / len(costs),
+            'min_cost': min(costs),
+            'max_cost': max(costs),
+            'avg_rounds': sum(rounds) / len(rounds),
+            'min_rounds': min(rounds),
+            'max_rounds': max(rounds),
+            'zero_round_count': zero_rounds,
+            'zero_round_pct': 100 * zero_rounds / len(results)
+        })
+    
+    return data
+
+def print_zero_round_analysis(data):
+    """Print analysis of configurations with zero rounds."""
+    print("\n" + "="*80)
+    print("CONFIGURATIONS WITH ZERO-ROUND COMPLETIONS")
+    print("="*80)
+    
+    zero_configs = [d for d in data if d['zero_round_count'] > 0]
+    
+    if not zero_configs:
+        print("No configurations had zero-round completions.")
+        return
+    
+    # Sort by algorithm, then agents
+    zero_configs.sort(key=lambda x: (x['algorithm'], x['network'], x['agents'], x['timeout']))
+    
+    print(f"\n{'Algorithm':<8} {'Network':<12} {'Timeout':>7} {'Agents':>6} {'Zero-Round':>10} {'Pct':>6}")
+    print("-"*60)
+    
+    for d in zero_configs:
+        print(f"{d['algorithm']:<8} {d['network']:<12} {d['timeout']:>7}s {d['agents']:>6} "
+              f"{d['zero_round_count']:>10} {d['zero_round_pct']:>5.0f}%")
+    
+    print(f"\nTotal configurations affected: {len(zero_configs)} / {len(data)}")
+
+def print_comparison_table(data):
+    """Print comparison table between algorithms."""
+    print("\n" + "="*80)
+    print("ALGORITHM COMPARISON TABLE")
+    print("="*80)
+    
+    # Group by network, timeout, agents
+    grouped = defaultdict(dict)
+    for d in data:
+        key = (d['network'], d['timeout'], d['agents'])
+        grouped[key][d['algorithm']] = d
+    
+    # Print header
+    print(f"\n{'Network':<12} {'Timeout':>7} {'Agents':>6} | "
+          f"{'PDSA Cost':>10} {'Rounds':>7} | {'PMGM Cost':>10} {'Rounds':>7} | {'Winner':>8}")
+    print("-"*85)
+    
+    pdsa_wins = 0
+    pmgm_wins = 0
+    ties = 0
+    
+    for key in sorted(grouped.keys()):
+        network, timeout, agents = key
+        algos = grouped[key]
+        
+        pdsa = algos.get('PDSA', {})
+        pmgm = algos.get('PMGM', {})
+        
+        pdsa_cost = pdsa.get('avg_cost', float('nan'))
+        pdsa_rounds = pdsa.get('avg_rounds', float('nan'))
+        pmgm_cost = pmgm.get('avg_cost', float('nan'))
+        pmgm_rounds = pmgm.get('avg_rounds', float('nan'))
+        
+        # Determine winner
+        if pdsa_cost < pmgm_cost:
+            winner = "PDSA"
+            pdsa_wins += 1
+        elif pmgm_cost < pdsa_cost:
+            winner = "PMGM"
+            pmgm_wins += 1
+        else:
+            winner = "TIE"
+            ties += 1
+        
+        # Mark zero-round issues
+        pdsa_marker = "*" if pdsa.get('zero_round_count', 0) > 0 else " "
+        pmgm_marker = "*" if pmgm.get('zero_round_count', 0) > 0 else " "
+        
+        print(f"{network:<12} {timeout:>7}s {agents:>6} | "
+              f"{pdsa_cost:>9.1f}{pdsa_marker} {pdsa_rounds:>7.1f} | "
+              f"{pmgm_cost:>9.1f}{pmgm_marker} {pmgm_rounds:>7.1f} | {winner:>8}")
+    
+    print("-"*85)
+    print(f"* = has zero-round completions")
+    print(f"\nWinner summary: PDSA={pdsa_wins}, PMGM={pmgm_wins}, TIE={ties}")
+
+def print_summary_by_agents(data):
+    """Print summary grouped by agent count."""
+    print("\n" + "="*80)
+    print("SUMMARY BY AGENT COUNT (averaged across networks and timeouts)")
+    print("="*80)
+    
+    # Group by algorithm and agents
+    grouped = defaultdict(list)
+    for d in data:
+        grouped[(d['algorithm'], d['agents'])].append(d)
+    
+    # Calculate averages
+    summary = []
+    for (algo, agents), items in grouped.items():
+        avg_cost = sum(d['avg_cost'] for d in items) / len(items)
+        avg_rounds = sum(d['avg_rounds'] for d in items) / len(items)
+        total_zero = sum(d['zero_round_count'] for d in items)
+        total_problems = sum(d['num_problems'] for d in items)
+        
+        summary.append({
+            'algorithm': algo,
+            'agents': agents,
+            'avg_cost': avg_cost,
+            'avg_rounds': avg_rounds,
+            'zero_round_pct': 100 * total_zero / total_problems if total_problems > 0 else 0
+        })
+    
+    summary.sort(key=lambda x: (x['agents'], x['algorithm']))
+    
+    print(f"\n{'Agents':>6} | {'PDSA Cost':>10} {'Rounds':>8} {'0-Rnd%':>7} | "
+          f"{'PMGM Cost':>10} {'Rounds':>8} {'0-Rnd%':>7}")
+    print("-"*75)
+    
+    agents_list = sorted(set(d['agents'] for d in summary))
+    for agents in agents_list:
+        pdsa = next((d for d in summary if d['algorithm'] == 'PDSA' and d['agents'] == agents), None)
+        pmgm = next((d for d in summary if d['algorithm'] == 'PMGM' and d['agents'] == agents), None)
+        
+        pdsa_cost = pdsa['avg_cost'] if pdsa else float('nan')
+        pdsa_rounds = pdsa['avg_rounds'] if pdsa else float('nan')
+        pdsa_zero = pdsa['zero_round_pct'] if pdsa else 0
+        
+        pmgm_cost = pmgm['avg_cost'] if pmgm else float('nan')
+        pmgm_rounds = pmgm['avg_rounds'] if pmgm else float('nan')
+        pmgm_zero = pmgm['zero_round_pct'] if pmgm else 0
+        
+        print(f"{agents:>6} | {pdsa_cost:>10.1f} {pdsa_rounds:>8.1f} {pdsa_zero:>6.0f}% | "
+              f"{pmgm_cost:>10.1f} {pmgm_rounds:>8.1f} {pmgm_zero:>6.0f}%")
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python analyze_results.py <results_directory>")
-        sys.exit(1)
+        results_dir = "results/2026_10_02-2127295"
+    else:
+        results_dir = sys.argv[1]
     
-    results_dir = sys.argv[1]
+    print(f"Analyzing results from: {results_dir}")
     
-    # Collect all results
-    all_results = {}  # (network, timeout, agents) -> {algo: stats}
+    data = analyze_directory(results_dir)
     
-    for filename in os.listdir(results_dir):
-        if not filename.endswith('_results.csv'):
-            continue
-        
-        config = parse_filename(filename)
-        if not config:
-            continue
-        
-        filepath = os.path.join(results_dir, filename)
-        stats = read_results(filepath)
-        
-        if stats:
-            key = (config['network'], config['timeout'], config['agents'])
-            if key not in all_results:
-                all_results[key] = {}
-            all_results[key][config['algorithm']] = stats
+    if not data:
+        print("No result files found!")
+        return 1
     
-    # Print comparison tables
-    for network in ['RANDOM', 'SCALE_FREE']:
-        print(f"\n{'='*80}")
-        print(f"Network Type: {network}")
-        print(f"{'='*80}")
-        
-        for timeout in [60, 120, 180]:
-            print(f"\n--- Timeout: {timeout}s ---")
-            print(f"{'Agents':>8} | {'PDSA Avg Cost':>14} | {'PMGM Avg Cost':>14} | {'Diff':>10} | {'PDSA Wins':>10}")
-            print(f"{'-'*8}-+-{'-'*14}-+-{'-'*14}-+-{'-'*10}-+-{'-'*10}")
-            
-            pdsa_wins = 0
-            pmgm_wins = 0
-            ties = 0
-            
-            for agents in [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]:
-                key = (network, timeout, agents)
-                
-                if key not in all_results:
-                    print(f"{agents:>8} | {'N/A':>14} | {'N/A':>14} | {'N/A':>10} | {'N/A':>10}")
-                    continue
-                
-                data = all_results[key]
-                pdsa = data.get('PDSA', {}).get('avg_cost', float('nan'))
-                pmgm = data.get('PMGM', {}).get('avg_cost', float('nan'))
-                
-                if pdsa != pdsa or pmgm != pmgm:  # NaN check
-                    print(f"{agents:>8} | {'N/A':>14} | {'N/A':>14} | {'N/A':>10} | {'N/A':>10}")
-                    continue
-                
-                diff = pmgm - pdsa
-                if abs(diff) < 0.01:
-                    winner = "TIE"
-                    ties += 1
-                elif pdsa < pmgm:
-                    winner = "PDSA"
-                    pdsa_wins += 1
-                else:
-                    winner = "PMGM"
-                    pmgm_wins += 1
-                
-                print(f"{agents:>8} | {pdsa:>14.2f} | {pmgm:>14.2f} | {diff:>+10.2f} | {winner:>10}")
-            
-            print(f"\nSummary: PDSA wins {pdsa_wins}, PMGM wins {pmgm_wins}, Ties {ties}")
+    print(f"Found {len(data)} result configurations")
     
-    # Overall summary
-    print(f"\n{'='*80}")
-    print("OVERALL SUMMARY")
-    print(f"{'='*80}")
+    print_zero_round_analysis(data)
+    print_comparison_table(data)
+    print_summary_by_agents(data)
     
-    pdsa_total = 0
-    pmgm_total = 0
-    pdsa_count = 0
-    pmgm_count = 0
-    
-    for key, data in all_results.items():
-        if 'PDSA' in data:
-            pdsa_total += data['PDSA']['avg_cost']
-            pdsa_count += 1
-        if 'PMGM' in data:
-            pmgm_total += data['PMGM']['avg_cost']
-            pmgm_count += 1
-    
-    if pdsa_count > 0 and pmgm_count > 0:
-        pdsa_overall = pdsa_total / pdsa_count
-        pmgm_overall = pmgm_total / pmgm_count
-        print(f"\nAverage cost across all configurations:")
-        print(f"  PDSA: {pdsa_overall:.2f}")
-        print(f"  PMGM: {pmgm_overall:.2f}")
-        print(f"  Difference: {pmgm_overall - pdsa_overall:+.2f}")
-        
-        if pdsa_overall < pmgm_overall:
-            print(f"\n  PDSA achieves {((pmgm_overall - pdsa_overall) / pmgm_overall * 100):.1f}% lower cost overall")
-        else:
-            print(f"\n  PMGM achieves {((pdsa_overall - pmgm_overall) / pdsa_overall * 100):.1f}% lower cost overall")
-
+    return 0
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

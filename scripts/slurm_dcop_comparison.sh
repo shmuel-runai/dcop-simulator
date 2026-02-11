@@ -122,9 +122,13 @@ RANDOM_DENSITY=0.4
 SCALEFREE_INIT=4
 SCALEFREE_ADD=2
 
-# Timestamp for this test run
+# Create unique results directory with job ID and timestamp
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-RESULTS_BASE="comparison_${TIMESTAMP}"
+JOB_ID="${SLURM_JOB_ID:-local}"
+RUN_DIR="results/run_${JOB_ID}_${TIMESTAMP}"
+mkdir -p "$RUN_DIR"
+
+RESULTS_BASE="${JOB_ID}_${TIMESTAMP}"
 
 # Count configurations
 NUM_TIMEOUT_ALGOS=$(echo $TIMEOUT_ALGORITHMS | wc -w | xargs)
@@ -156,6 +160,50 @@ echo ""
 echo "Total configurations: $TOTAL_CONFIGS"
 echo "Total problems: $((TOTAL_CONFIGS * NUM_PROBLEMS))"
 echo ""
+echo "Results directory: $RUN_DIR"
+echo ""
+
+# Write configuration file
+CONFIG_FILE="$RUN_DIR/config.txt"
+{
+    echo "DCOP Comparison Test Configuration"
+    echo "==================================="
+    echo ""
+    echo "Run Info:"
+    echo "  Job ID:     $JOB_ID"
+    echo "  Timestamp:  $TIMESTAMP"
+    echo "  Started:    $(date)"
+    echo "  Host:       $(hostname)"
+    echo "  Directory:  $(pwd)"
+    echo ""
+    echo "Algorithms:"
+    if [[ -n "$TIMEOUT_ALGORITHMS" ]]; then
+        echo "  Timeout-based: $TIMEOUT_ALGORITHMS"
+        echo "  Timeouts:      $TIMEOUTS"
+    fi
+    if [[ -n "$ROUND_ALGORITHMS" ]]; then
+        echo "  Round-based:   $ROUND_ALGORITHMS"
+        echo "  Rounds:        $ROUNDS"
+    fi
+    echo ""
+    echo "Test Parameters:"
+    echo "  Network Types:    $NETWORK_TYPES"
+    echo "  Agent Counts:     $AGENT_COUNTS"
+    echo "  Domain Size:      $DOMAIN_SIZE"
+    echo "  Cost Range:       [$MIN_COST, $MAX_COST]"
+    echo "  Problems/Config:  $NUM_PROBLEMS"
+    echo "  Problem Seed:     $PROBLEM_SEED"
+    echo ""
+    echo "Network Parameters:"
+    echo "  Random Density:   $RANDOM_DENSITY"
+    echo "  Scale-Free Init:  $SCALEFREE_INIT"
+    echo "  Scale-Free Add:   $SCALEFREE_ADD"
+    echo ""
+    echo "Total Configurations: $TOTAL_CONFIGS"
+    echo "Total Problems:       $((TOTAL_CONFIGS * NUM_PROBLEMS))"
+} > "$CONFIG_FILE"
+echo "Configuration saved to: $CONFIG_FILE"
+echo ""
 
 # Track progress
 CURRENT_CONFIG=0
@@ -175,13 +223,13 @@ run_config() {
     
     CURRENT_CONFIG=$((CURRENT_CONFIG + 1))
     
-    # Generate output prefix
+    # Generate output prefix (file will go into RUN_DIR)
     if [[ "$HALT_TYPE" == "timeout" ]]; then
-        PREFIX="${RESULTS_BASE}_${ALGO}_${NET_TYPE}_t${HALT_VALUE}_n${NUM_AGENTS}"
+        FILE_PREFIX="${ALGO}_${NET_TYPE}_t${HALT_VALUE}_n${NUM_AGENTS}"
         echo ""
         echo "[$CURRENT_CONFIG/$TOTAL_CONFIGS] $ALGO / $NET_TYPE / timeout=${HALT_VALUE}s / agents=$NUM_AGENTS"
     else
-        PREFIX="${RESULTS_BASE}_${ALGO}_${NET_TYPE}_r${HALT_VALUE}_n${NUM_AGENTS}"
+        FILE_PREFIX="${ALGO}_${NET_TYPE}_r${HALT_VALUE}_n${NUM_AGENTS}"
         echo ""
         echo "[$CURRENT_CONFIG/$TOTAL_CONFIGS] $ALGO / $NET_TYPE / rounds=${HALT_VALUE} / agents=$NUM_AGENTS"
     fi
@@ -196,7 +244,7 @@ run_config() {
     CMD="$CMD --min-cost $MIN_COST"
     CMD="$CMD --max-cost $MAX_COST"
     CMD="$CMD --problem-seed $PROBLEM_SEED"
-    CMD="$CMD --output-prefix $PREFIX"
+    CMD="$CMD --output-prefix $FILE_PREFIX"
     
     # Halting condition
     if [[ "$HALT_TYPE" == "timeout" ]]; then
@@ -223,6 +271,14 @@ run_config() {
     
     # Run the test
     $CMD
+    
+    # Move result files to run directory
+    for file in results/test_${FILE_PREFIX}_*.csv; do
+        if [[ -f "$file" ]]; then
+            mv "$file" "$RUN_DIR/"
+            echo "  Moved: $(basename $file) -> $RUN_DIR/"
+        fi
+    done
     
     # Progress update
     ELAPSED=$(($(date +%s) - START_TIME))
@@ -269,8 +325,21 @@ echo "=========================================="
 echo "Finished: $(date)"
 echo "Total Duration: ${TOTAL_DURATION} seconds ($((TOTAL_DURATION / 60)) minutes)"
 echo ""
-echo "Results saved with prefix: $RESULTS_BASE"
+echo "Results directory: $RUN_DIR"
 echo ""
+
+# Append completion info to config file
+{
+    echo ""
+    echo "Completion:"
+    echo "  Finished:     $(date)"
+    echo "  Duration:     ${TOTAL_DURATION} seconds ($((TOTAL_DURATION / 60)) minutes)"
+    echo "  Exit Status:  Success"
+} >> "$CONFIG_FILE"
+
+# List output files
 echo "Output files:"
-ls -la results/test_${RESULTS_BASE}_* 2>/dev/null | head -20
+ls -la "$RUN_DIR"/*.csv 2>/dev/null | head -20
+echo ""
+echo "Total files: $(ls -1 "$RUN_DIR"/*.csv 2>/dev/null | wc -l) CSV files"
 echo ""

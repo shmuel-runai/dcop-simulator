@@ -107,9 +107,10 @@ RANDOM_DENSITY=0.4
 SCALEFREE_INIT=4
 SCALEFREE_ADD=2
 
-# Timestamp for this batch
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-RESULTS_BASE="comparison_${SLURM_ARRAY_JOB_ID:-$TIMESTAMP}"
+# Create unique results directory with array job ID
+ARRAY_JOB_ID="${SLURM_ARRAY_JOB_ID:-local_$(date +%Y%m%d_%H%M%S)}"
+RUN_DIR="results/run_${ARRAY_JOB_ID}"
+mkdir -p "$RUN_DIR"
 
 # Count configurations
 TIMEOUT_ALGO_ARRAY=($TIMEOUT_ALGORITHMS)
@@ -174,13 +175,54 @@ fi
 NET_TYPE=${NETWORK_TYPES[$NETWORK_IDX]}
 NUM_AGENTS=${AGENT_COUNTS[$AGENT_IDX]}
 
-# Generate output prefix
+# Generate output prefix (just file naming, not directory)
 if [[ "$HALT_TYPE" == "timeout" ]]; then
-    PREFIX="${RESULTS_BASE}_${ALGO}_${NET_TYPE}_t${HALT_VALUE}_n${NUM_AGENTS}"
+    FILE_PREFIX="${ALGO}_${NET_TYPE}_t${HALT_VALUE}_n${NUM_AGENTS}"
     HALT_DISPLAY="Timeout: ${HALT_VALUE}s"
 else
-    PREFIX="${RESULTS_BASE}_${ALGO}_${NET_TYPE}_r${HALT_VALUE}_n${NUM_AGENTS}"
+    FILE_PREFIX="${ALGO}_${NET_TYPE}_r${HALT_VALUE}_n${NUM_AGENTS}"
     HALT_DISPLAY="Rounds: ${HALT_VALUE}"
+fi
+
+# Write config file on first task
+CONFIG_FILE="$RUN_DIR/config.txt"
+if [[ $TASK_ID -eq 1 ]] && [[ ! -f "$CONFIG_FILE" ]]; then
+    {
+        echo "DCOP Parallel Test Configuration"
+        echo "================================="
+        echo ""
+        echo "Run Info:"
+        echo "  Array Job ID: $ARRAY_JOB_ID"
+        echo "  Started:      $(date)"
+        echo "  Host:         $(hostname)"
+        echo "  Directory:    $(pwd)"
+        echo ""
+        echo "Algorithms:"
+        if [[ -n "$TIMEOUT_ALGORITHMS" ]]; then
+            echo "  Timeout-based: $TIMEOUT_ALGORITHMS"
+            echo "  Timeouts:      ${TIMEOUTS[*]}"
+        fi
+        if [[ -n "$ROUND_ALGORITHMS" ]]; then
+            echo "  Round-based:   $ROUND_ALGORITHMS"
+            echo "  Rounds:        ${ROUNDS[*]}"
+        fi
+        echo ""
+        echo "Test Parameters:"
+        echo "  Network Types:    ${NETWORK_TYPES[*]}"
+        echo "  Agent Counts:     ${AGENT_COUNTS[*]}"
+        echo "  Domain Size:      $DOMAIN_SIZE"
+        echo "  Cost Range:       [$MIN_COST, $MAX_COST]"
+        echo "  Problems/Config:  $NUM_PROBLEMS"
+        echo "  Problem Seed:     $PROBLEM_SEED"
+        echo ""
+        echo "Network Parameters:"
+        echo "  Random Density:   $RANDOM_DENSITY"
+        echo "  Scale-Free Init:  $SCALEFREE_INIT"
+        echo "  Scale-Free Add:   $SCALEFREE_ADD"
+        echo ""
+        echo "Total Configurations: $TOTAL_CONFIGS"
+        echo "Total Problems:       $((TOTAL_CONFIGS * NUM_PROBLEMS))"
+    } > "$CONFIG_FILE"
 fi
 
 echo "=========================================="
@@ -191,7 +233,8 @@ echo "Network:      $NET_TYPE"
 echo "$HALT_DISPLAY"
 echo "Agents:       $NUM_AGENTS"
 echo "Problems:     $NUM_PROBLEMS"
-echo "Output:       $PREFIX"
+echo "Results Dir:  $RUN_DIR"
+echo "Output File:  ${FILE_PREFIX}_results.csv"
 echo "Working dir:  $(pwd)"
 echo "=========================================="
 echo ""
@@ -206,7 +249,7 @@ CMD="$CMD --num-problems $NUM_PROBLEMS"
 CMD="$CMD --min-cost $MIN_COST"
 CMD="$CMD --max-cost $MAX_COST"
 CMD="$CMD --problem-seed $PROBLEM_SEED"
-CMD="$CMD --output-prefix $PREFIX"
+CMD="$CMD --output-prefix $FILE_PREFIX"
 
 if [[ "$HALT_TYPE" == "timeout" ]]; then
     CMD="$CMD --timeout $HALT_VALUE"
@@ -231,7 +274,16 @@ echo "Running: $CMD"
 echo ""
 $CMD
 
+# Move result files to run directory
+for file in results/test_${FILE_PREFIX}_*.csv; do
+    if [[ -f "$file" ]]; then
+        mv "$file" "$RUN_DIR/"
+        echo "Moved: $(basename $file) -> $RUN_DIR/"
+    fi
+done
+
 echo ""
 echo "=========================================="
 echo "Task $TASK_ID/$TOTAL_CONFIGS Complete!"
+echo "Results saved to: $RUN_DIR"
 echo "=========================================="

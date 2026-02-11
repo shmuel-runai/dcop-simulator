@@ -24,17 +24,22 @@ java -version
 
 ```bash
 chmod +x scripts/run_algorithm_test.sh
-chmod +x scripts/slurm_pdsa_pmgm_comparison.sh
+chmod +x scripts/slurm_dcop_comparison.sh
+chmod +x scripts/slurm_dcop_parallel.sh
 chmod +x scripts/verify_problems.py
 ```
 
 ### 4. Update Paths in Slurm Script
 
-Edit `scripts/slurm_pdsa_pmgm_comparison.sh` and update the project directory:
+Use the `--project-dir` option or set the `PROJECT_DIR` environment variable:
 
 ```bash
-# Change this line to match your environment:
-cd /path/to/your/dcop-simulator
+# Option 1: Pass as argument
+sbatch scripts/slurm_dcop_comparison.sh --project-dir /path/to/dcop-simulator
+
+# Option 2: Set environment variable
+export PROJECT_DIR=/path/to/dcop-simulator
+sbatch scripts/slurm_dcop_comparison.sh
 ```
 
 ### 5. Create Required Directories
@@ -70,11 +75,17 @@ If this works, you're ready for Slurm.
 
 ## Running with Slurm
 
-### Option 1: Submit as a Batch Job
+### Option 1: Submit as a Batch Job (Sequential)
 
 ```bash
-# Submit the job
-sbatch scripts/slurm_pdsa_pmgm_comparison.sh
+# Run all algorithms
+sbatch scripts/slurm_dcop_comparison.sh
+
+# Run only PMAXSUM
+sbatch scripts/slurm_dcop_comparison.sh --algorithms "PMAXSUM"
+
+# Run PDSA and PMGM
+sbatch scripts/slurm_dcop_comparison.sh --algorithms "PDSA PMGM"
 
 # You'll see: "Submitted batch job 12345"
 ```
@@ -86,7 +97,7 @@ sbatch scripts/slurm_pdsa_pmgm_comparison.sh
 srun --time=01:00:00 --mem=8G --pty bash
 
 # Then run the script directly
-./scripts/slurm_pdsa_pmgm_comparison.sh
+./scripts/slurm_dcop_comparison.sh --algorithms "PMAXSUM"
 ```
 
 ### Option 3: Run a Single Configuration
@@ -150,25 +161,39 @@ grep -i "error\|exception\|failed" slurm_logs/dcop_*.err
 grep -i "error\|exception\|failed" slurm_logs/dcop_*.out
 ```
 
-### 2. List Result Files
+### 2. Find Your Results Directory
 
 ```bash
-ls -la results/test_comparison_*.csv
+# List all run directories (most recent first)
+ls -lt results/run_*/
+
+# View the configuration of a specific run
+cat results/run_<JOBID>_<TIMESTAMP>/config.txt
 ```
 
-### 3. Verify Problem Consistency
+### 3. List Result Files
+
+```bash
+# List all CSV files in a run directory
+ls -la results/run_<JOBID>_<TIMESTAMP>/*.csv
+
+# Count files
+ls results/run_<JOBID>_<TIMESTAMP>/*.csv | wc -l
+```
+
+### 4. Verify Problem Consistency
 
 ```bash
 # Compare problem files to ensure same seeds produced same problems
-python3 scripts/verify_problems.py results/test_*_problems.csv
+python3 scripts/verify_problems.py results/run_*/test_*_problems.csv
 ```
 
-### 4. Quick Results Summary
+### 5. Quick Results Summary
 
 ```bash
-# Count results per algorithm
-for f in results/test_*_results.csv; do
-  echo "=== $f ==="
+# Count results per algorithm in a run
+for f in results/run_<JOBID>_<TIMESTAMP>/test_*_results.csv; do
+  echo "=== $(basename $f) ==="
   head -5 "$f"
   echo "..."
   wc -l "$f"
@@ -179,16 +204,22 @@ done
 
 ## Customizing the Test Matrix
 
-Edit `scripts/slurm_pdsa_pmgm_comparison.sh` to modify:
+Use the `--algorithms` option to specify which algorithms to run:
 
 ```bash
-# Algorithms to test
-# Timeout-based algorithms (use --timeout parameter)
-TIMEOUT_ALGORITHMS="PDSA PMGM"
+# Run all three algorithms
+./scripts/slurm_dcop_comparison.sh --algorithms "PDSA PMGM PMAXSUM"
 
-# Round-based algorithms (use --last-round parameter)
-ROUND_ALGORITHMS="PMAXSUM"
+# Run only PMAXSUM
+./scripts/slurm_dcop_comparison.sh --algorithms "PMAXSUM"
 
+# Run only timeout-based algorithms
+./scripts/slurm_dcop_comparison.sh --algorithms "PDSA PMGM"
+```
+
+To modify the test parameters (agent counts, timeouts, etc.), edit the script:
+
+```bash
 # Network topologies
 NETWORK_TYPES="RANDOM SCALE_FREE"
 
@@ -235,34 +266,32 @@ For larger agent counts (80-100), you may need more memory:
 
 ## Parallel Execution (Advanced)
 
-Use the parallel script to run all 180 configurations simultaneously:
+Use the parallel script to run configurations simultaneously:
 
 ```bash
-# Submit all configurations as a job array
-sbatch scripts/slurm_pdsa_pmgm_parallel.sh
+# Run only PMAXSUM (60 configs = 1 algo × 2 networks × 3 rounds × 10 agents)
+sbatch --array=1-60 scripts/slurm_dcop_parallel.sh --algorithms "PMAXSUM"
 
-# This creates 180 parallel jobs:
-# - Tasks 1-120: PDSA and PMGM (timeout-based)
-# - Tasks 121-180: PMAXSUM (round-based)
+# Run PDSA and PMGM (120 configs = 2 algos × 2 networks × 3 timeouts × 10 agents)
+sbatch --array=1-120 scripts/slurm_dcop_parallel.sh --algorithms "PDSA PMGM"
+
+# Run all algorithms (180 configs)
+sbatch --array=1-180 scripts/slurm_dcop_parallel.sh --algorithms "PDSA PMGM PMAXSUM"
 ```
 
-The parallel script (`slurm_pdsa_pmgm_parallel.sh`) automatically maps each array task ID to a unique configuration:
+Configuration counts per algorithm:
+- PDSA: 60 configs (1 algo × 2 networks × 3 timeouts × 10 agent counts)
+- PMGM: 60 configs (1 algo × 2 networks × 3 timeouts × 10 agent counts)
+- PMAXSUM: 60 configs (1 algo × 2 networks × 3 rounds × 10 agent counts)
+
+To run a subset of parallel tasks:
 
 ```bash
-#SBATCH --array=1-180        # 180 configurations total
-```
+# Run tasks 1-30 only
+sbatch --array=1-30 scripts/slurm_dcop_parallel.sh --algorithms "PMAXSUM"
 
-To run a subset of tasks:
-
-```bash
-# Only PDSA and PMGM (tasks 1-120)
-sbatch --array=1-120 scripts/slurm_pdsa_pmgm_parallel.sh
-
-# Only PMAXSUM (tasks 121-180)
-sbatch --array=121-180 scripts/slurm_pdsa_pmgm_parallel.sh
-
-# Only specific agent counts (e.g., 10, 50, 100 agents)
-sbatch --array=1,5,10,61,65,70,121,125,130 scripts/slurm_pdsa_pmgm_parallel.sh
+# Run specific tasks
+sbatch --array=1,5,10,20 scripts/slurm_dcop_parallel.sh --algorithms "PMAXSUM"
 ```
 
 ---
@@ -291,37 +320,49 @@ ant clean compile
 ### Out of Memory
 ```bash
 # Increase memory in the script or via sbatch
-sbatch --mem=32G scripts/slurm_pdsa_pmgm_comparison.sh
+sbatch --mem=32G scripts/slurm_dcop_comparison.sh --algorithms "PMAXSUM"
 ```
 
 ### Job Timeout
 ```bash
 # Increase time limit
-sbatch --time=72:00:00 scripts/slurm_pdsa_pmgm_comparison.sh
+sbatch --time=72:00:00 scripts/slurm_dcop_comparison.sh --algorithms "PMAXSUM"
 ```
 
 ---
 
 ## Expected Output
 
-After a successful run, you'll have:
+After a successful run, results are organized in a dedicated directory:
 
 ```
 results/
-├── test_comparison_YYYYMMDD_HHMMSS_PDSA_RANDOM_t60_n10_results.csv
-├── test_comparison_YYYYMMDD_HHMMSS_PDSA_RANDOM_t60_n10_problems.csv  # (first run only)
-├── test_comparison_YYYYMMDD_HHMMSS_PDSA_RANDOM_t60_n20_results.csv
-├── ...
-├── test_comparison_YYYYMMDD_HHMMSS_PMGM_SCALE_FREE_t180_n100_results.csv
-├── test_comparison_YYYYMMDD_HHMMSS_PMAXSUM_RANDOM_r10_n10_results.csv  # Note: r10 = 10 rounds
-├── test_comparison_YYYYMMDD_HHMMSS_PMAXSUM_RANDOM_r20_n50_results.csv
-├── ...
-└── test_comparison_YYYYMMDD_HHMMSS_PMAXSUM_SCALE_FREE_r30_n100_results.csv
+└── run_<JOBID>_<TIMESTAMP>/
+    ├── config.txt                              # Test configuration and parameters
+    ├── test_PDSA_RANDOM_t60_n10_results.csv
+    ├── test_PDSA_RANDOM_t60_n10_problems.csv   # (first run only)
+    ├── test_PDSA_RANDOM_t60_n20_results.csv
+    ├── ...
+    ├── test_PMGM_SCALE_FREE_t180_n100_results.csv
+    ├── test_PMAXSUM_RANDOM_r10_n10_results.csv  # Note: r10 = 10 rounds
+    ├── test_PMAXSUM_RANDOM_r20_n50_results.csv
+    ├── ...
+    └── test_PMAXSUM_SCALE_FREE_r30_n100_results.csv
 ```
 
-**Naming convention:**
+**Directory naming:**
+- `run_<JOBID>_<TIMESTAMP>/` - Each run gets its own folder with Slurm job ID and timestamp
+- `config.txt` - Contains all test parameters, algorithms, and completion info
+
+**File naming convention:**
 - `t60` = timeout 60 seconds (PDSA, PMGM)
 - `r10` = 10 rounds (PMAXSUM)
+
+**config.txt contents:**
+- Run info: Job ID, timestamp, host
+- Algorithms: which were tested, halting types
+- Test parameters: networks, agents, domain, costs
+- Completion status and duration
 
 Each results file contains:
 - Configuration header (algorithm, network, agents, etc.)
