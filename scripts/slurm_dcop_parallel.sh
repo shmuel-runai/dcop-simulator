@@ -12,7 +12,7 @@
 # Use with sbatch --array to run multiple configurations in parallel.
 #
 # Usage:
-#   # Run only PMAXSUM (60 configs = 1 algo × 2 networks × 3 rounds × 10 agents)
+#   # Run only PMAXSUM (60 configs = 1 algo × 2 networks × 3 timeouts × 10 agents)
 #   sbatch --array=1-60 scripts/slurm_dcop_parallel.sh --algorithms "PMAXSUM"
 #
 #   # Run PDSA and PMGM (120 configs = 2 algos × 2 networks × 3 timeouts × 10 agents)
@@ -25,10 +25,10 @@
 #   --algorithms "ALG1 ALG2 ..."   Algorithms to test (REQUIRED)
 #   --project-dir PATH             Project directory (default: current directory)
 #
-# Configuration counts:
+# Configuration counts (all use timeout-based halting):
 #   PDSA:     60 configs (1 × 2 networks × 3 timeouts × 10 agents)
 #   PMGM:     60 configs (1 × 2 networks × 3 timeouts × 10 agents)
-#   PMAXSUM:  60 configs (1 × 2 networks × 3 rounds × 10 agents)
+#   PMAXSUM:  60 configs (1 × 2 networks × 3 timeouts × 10 agents)
 
 set -e
 
@@ -73,14 +73,17 @@ ROUND_ALGORITHMS=""
 
 for ALGO in $ALGORITHMS_INPUT; do
     case $ALGO in
-        PDSA|PMGM)
+        PDSA|PMGM|PMAXSUM)
+            # All privacy-preserving algorithms use timeout for performance testing
             TIMEOUT_ALGORITHMS="$TIMEOUT_ALGORITHMS $ALGO"
             ;;
-        PMAXSUM|MAXSUM)
+        MAXSUM)
+            # Non-private Max-Sum uses rounds (for correctness verification only)
             ROUND_ALGORITHMS="$ROUND_ALGORITHMS $ALGO"
             ;;
         *)
             echo "ERROR: Unknown algorithm: $ALGO"
+            echo "Supported: PDSA, PMGM, PMAXSUM, MAXSUM"
             exit 1
             ;;
     esac

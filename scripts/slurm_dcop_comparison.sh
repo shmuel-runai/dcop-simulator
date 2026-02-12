@@ -30,12 +30,13 @@
 # Supported Algorithms:
 #   PDSA     - Privacy-preserving DSA (timeout-based)
 #   PMGM     - Privacy-preserving MGM (timeout-based)
-#   PMAXSUM  - Privacy-preserving Max-Sum (round-based)
+#   PMAXSUM  - Privacy-preserving Max-Sum (timeout-based)
+#   MAXSUM   - Non-private Max-Sum (round-based, for correctness verification)
 #
-# Test Matrix per algorithm:
+# Test Matrix:
 # - Network types: RANDOM (density=0.4), SCALE_FREE (init=4, addition=2)
-# - Timeouts: 60s, 120s, 180s (for PDSA, PMGM)
-# - Rounds: 10, 20, 30 (for PMAXSUM)
+# - Timeouts: 60s, 120s, 180s (for PDSA, PMGM, PMAXSUM)
+# - Rounds: 10, 20, 30 (for MAXSUM only)
 # - Agents: 10, 20, 30, 40, 50, 60, 70, 80, 90, 100
 # - Domain size: 10
 # - Cost range: 0-10
@@ -88,15 +89,17 @@ ROUND_ALGORITHMS=""
 
 for ALGO in $ALGORITHMS_INPUT; do
     case $ALGO in
-        PDSA|PMGM)
+        PDSA|PMGM|PMAXSUM)
+            # All privacy-preserving algorithms use timeout for performance testing
             TIMEOUT_ALGORITHMS="$TIMEOUT_ALGORITHMS $ALGO"
             ;;
-        PMAXSUM|MAXSUM)
+        MAXSUM)
+            # Non-private Max-Sum uses rounds (for correctness verification only)
             ROUND_ALGORITHMS="$ROUND_ALGORITHMS $ALGO"
             ;;
         *)
             echo "ERROR: Unknown algorithm: $ALGO"
-            echo "Supported: PDSA, PMGM, PMAXSUM"
+            echo "Supported: PDSA, PMGM, PMAXSUM, MAXSUM"
             exit 1
             ;;
     esac
