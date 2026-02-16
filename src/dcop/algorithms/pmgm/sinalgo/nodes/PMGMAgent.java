@@ -64,6 +64,10 @@ public class PMGMAgent extends Node implements IDCOPAgent, IPMGMRoundListener, I
     private int roundNumber;
     private int maxRounds = -1;  // -1 = unlimited, 0 = no rounds, >0 = limit
     
+    // Cached objects (avoid repeated allocation in hot path)
+    private List<Integer> cachedParticipants;
+    private Map<String, Object> cachedResources;
+    
     public PMGMAgent() {
         this.selectedValue = 0;
         this.domainSize = 5;
@@ -185,6 +189,8 @@ public class PMGMAgent extends Node implements IDCOPAgent, IPMGMRoundListener, I
         constraintMatrices = null;
         algorithmRandom = null;
         cryptoRandom = null;
+        cachedParticipants = null;
+        cachedResources = null;
         
         // Force garbage collection after aggressive cleanup
         if (ID == 1) {
@@ -243,7 +249,7 @@ public class PMGMAgent extends Node implements IDCOPAgent, IPMGMRoundListener, I
         
         // Set up local message callback for self-messages (avoids network round-trip)
         transport.setLocalMessageCallback((msg, senderId) -> {
-            protocolManager.handleIncomingMessage(msg, senderId, buildResources());
+            protocolManager.handleIncomingMessage(msg, senderId, getResourcesCached());
         });
     }
     
@@ -266,37 +272,39 @@ public class PMGMAgent extends Node implements IDCOPAgent, IPMGMRoundListener, I
     }
     
     /**
-     * Builds the list of all participants (all agents in the PMGM protocol).
-     * Derived from constraintMatrices keys (neighbors) plus self.
+     * Returns the cached list of all participants (all agents in the PMGM protocol).
+     * Built once from constraintMatrices keys (neighbors) plus self, then cached.
      * 
-     * @return Sorted list of all participant agent IDs
+     * @return Sorted list of all participant agent IDs (cached, do not modify)
      */
-    private List<Integer> buildParticipants() {
-        List<Integer> participants = new ArrayList<>(constraintMatrices.keySet());
-        participants.add(this.ID);
-        Collections.sort(participants);
-        return participants;
+    private List<Integer> getParticipantsCached() {
+        if (cachedParticipants == null) {
+            List<Integer> participants = new ArrayList<>(constraintMatrices.keySet());
+            participants.add(this.ID);
+            Collections.sort(participants);
+            cachedParticipants = Collections.unmodifiableList(participants);
+        }
+        return cachedParticipants;
     }
     
     /**
-     * Builds the resources map needed for protocol message handling.
+     * Returns the cached resources map needed for protocol message handling.
      * Contains only infrastructure dependencies; domain-specific data
      * is passed via constructor injection to the round protocols.
+     * Built once and cached since contents don't change during a run.
      * 
-     * @return Map of resources for protocol handling
+     * @return Map of resources for protocol handling (cached, do not modify)
      */
-    private Map<String, Object> buildResources() {
-        Map<String, Object> resources = new HashMap<>();
-        resources.put("shareStorage", shareStorage);
-        // Note: Domain-specific params (constraintMatrices, algorithmRandom, cryptoRandom,
-        // selectedValue) are now passed via constructor to round protocols and then
-        // forwarded to sub-protocols via their params maps.
-        // Manager provides: agentId, transport, participants (from transport.neighborsId())
-        return resources;
+    private Map<String, Object> getResourcesCached() {
+        if (cachedResources == null) {
+            cachedResources = new HashMap<>();
+            cachedResources.put("shareStorage", shareStorage);
+        }
+        return cachedResources;
     }
     
     private void startNewRound() {
-        List<Integer> participants = buildParticipants();
+        List<Integer> participants = getParticipantsCached();
         
         // Create barrier for this round's synchronization
         currentBarrier = new BarrierProtocol();
@@ -362,13 +370,6 @@ public class PMGMAgent extends Node implements IDCOPAgent, IPMGMRoundListener, I
         // Also clear ALL protocols from manager (sub-protocols hold references)
         int protocolsCleared = protocolManager.clearAllProtocols();
         
-        // Hint to GC that now is a good time to reclaim memory
-        // This is especially important after clearing thousands of protocol instances
-        if (ID == 1) {
-            // Only one agent triggers GC to avoid redundant calls
-            System.gc();
-        }
-        
         // Increment round - all agents have completed
         this.roundNumber++;
         
@@ -390,7 +391,7 @@ public class PMGMAgent extends Node implements IDCOPAgent, IPMGMRoundListener, I
                 IProtocolMessage protocolMsg = wrapper.unwrap();
                 int senderId = inbox.getSender().ID;
                 
-                protocolManager.handleIncomingMessage(protocolMsg, senderId, buildResources());
+                protocolManager.handleIncomingMessage(protocolMsg, senderId, getResourcesCached());
             }
         }
     }

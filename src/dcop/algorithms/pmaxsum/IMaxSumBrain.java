@@ -44,9 +44,9 @@ public interface IMaxSumBrain {
     int getAssignment();
     
     /**
-     * Get current round number.
+     * Get number of completed rounds.
      * 
-     * @return Current round (0-based)
+     * @return Number of fully completed rounds (0 if no rounds completed yet)
      */
     int getRound();
     

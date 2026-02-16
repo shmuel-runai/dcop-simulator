@@ -114,9 +114,13 @@ def print_zero_round_analysis(data):
 
 def print_comparison_table(data):
     """Print comparison table between algorithms."""
-    print("\n" + "="*80)
+    print("\n" + "="*100)
     print("ALGORITHM COMPARISON TABLE")
-    print("="*80)
+    print("="*100)
+    
+    # Check which algorithms are present
+    all_algos = set(d['algorithm'] for d in data)
+    has_pmaxsum = 'PMAXSUM' in all_algos
     
     # Group by network, timeout, agents
     grouped = defaultdict(dict)
@@ -125,13 +129,17 @@ def print_comparison_table(data):
         grouped[key][d['algorithm']] = d
     
     # Print header
-    print(f"\n{'Network':<12} {'Timeout':>7} {'Agents':>6} | "
-          f"{'PDSA Cost':>10} {'Rounds':>7} | {'PMGM Cost':>10} {'Rounds':>7} | {'Winner':>8}")
-    print("-"*85)
+    if has_pmaxsum:
+        print(f"\n{'Network':<12} {'Timeout':>7} {'Agents':>6} | "
+              f"{'PDSA Cost':>10} {'Rnds':>5} | {'PMGM Cost':>10} {'Rnds':>5} | "
+              f"{'PMAXSUM Cost':>12} {'Rnds':>5} | {'Winner':>8}")
+        print("-"*110)
+    else:
+        print(f"\n{'Network':<12} {'Timeout':>7} {'Agents':>6} | "
+              f"{'PDSA Cost':>10} {'Rounds':>7} | {'PMGM Cost':>10} {'Rounds':>7} | {'Winner':>8}")
+        print("-"*85)
     
-    pdsa_wins = 0
-    pmgm_wins = 0
-    ties = 0
+    wins = defaultdict(int)
     
     for key in sorted(grouped.keys()):
         network, timeout, agents = key
@@ -139,40 +147,64 @@ def print_comparison_table(data):
         
         pdsa = algos.get('PDSA', {})
         pmgm = algos.get('PMGM', {})
+        pmaxsum = algos.get('PMAXSUM', {})
         
         pdsa_cost = pdsa.get('avg_cost', float('nan'))
         pdsa_rounds = pdsa.get('avg_rounds', float('nan'))
         pmgm_cost = pmgm.get('avg_cost', float('nan'))
         pmgm_rounds = pmgm.get('avg_rounds', float('nan'))
+        pmaxsum_cost = pmaxsum.get('avg_cost', float('nan'))
+        pmaxsum_rounds = pmaxsum.get('avg_rounds', float('nan'))
         
-        # Determine winner
-        if pdsa_cost < pmgm_cost:
-            winner = "PDSA"
-            pdsa_wins += 1
-        elif pmgm_cost < pdsa_cost:
-            winner = "PMGM"
-            pmgm_wins += 1
+        # Determine winner (lowest cost)
+        costs = {'PDSA': pdsa_cost, 'PMGM': pmgm_cost}
+        if has_pmaxsum:
+            costs['PMAXSUM'] = pmaxsum_cost
+        
+        valid_costs = {k: v for k, v in costs.items() if not (v != v)}  # filter NaN
+        if valid_costs:
+            min_cost = min(valid_costs.values())
+            winners = [k for k, v in valid_costs.items() if v == min_cost]
+            if len(winners) == 1:
+                winner = winners[0]
+                wins[winner] += 1
+            else:
+                winner = "TIE"
+                wins['TIE'] += 1
         else:
-            winner = "TIE"
-            ties += 1
+            winner = "N/A"
         
         # Mark zero-round issues
         pdsa_marker = "*" if pdsa.get('zero_round_count', 0) > 0 else " "
         pmgm_marker = "*" if pmgm.get('zero_round_count', 0) > 0 else " "
+        pmaxsum_marker = "*" if pmaxsum.get('zero_round_count', 0) > 0 else " "
         
-        print(f"{network:<12} {timeout:>7}s {agents:>6} | "
-              f"{pdsa_cost:>9.1f}{pdsa_marker} {pdsa_rounds:>7.1f} | "
-              f"{pmgm_cost:>9.1f}{pmgm_marker} {pmgm_rounds:>7.1f} | {winner:>8}")
+        if has_pmaxsum:
+            pmaxsum_cost_str = f"{pmaxsum_cost:>11.1f}{pmaxsum_marker}" if pmaxsum else "         N/A "
+            pmaxsum_rounds_str = f"{pmaxsum_rounds:>5.1f}" if pmaxsum else "  N/A"
+            print(f"{network:<12} {timeout:>7}s {agents:>6} | "
+                  f"{pdsa_cost:>9.1f}{pdsa_marker} {pdsa_rounds:>5.1f} | "
+                  f"{pmgm_cost:>9.1f}{pmgm_marker} {pmgm_rounds:>5.1f} | "
+                  f"{pmaxsum_cost_str} {pmaxsum_rounds_str} | {winner:>8}")
+        else:
+            print(f"{network:<12} {timeout:>7}s {agents:>6} | "
+                  f"{pdsa_cost:>9.1f}{pdsa_marker} {pdsa_rounds:>7.1f} | "
+                  f"{pmgm_cost:>9.1f}{pmgm_marker} {pmgm_rounds:>7.1f} | {winner:>8}")
     
-    print("-"*85)
+    print("-"*110 if has_pmaxsum else "-"*85)
     print(f"* = has zero-round completions")
-    print(f"\nWinner summary: PDSA={pdsa_wins}, PMGM={pmgm_wins}, TIE={ties}")
+    winner_str = ", ".join(f"{k}={v}" for k, v in sorted(wins.items()))
+    print(f"\nWinner summary: {winner_str}")
 
 def print_summary_by_agents(data):
     """Print summary grouped by agent count."""
-    print("\n" + "="*80)
+    print("\n" + "="*110)
     print("SUMMARY BY AGENT COUNT (averaged across networks and timeouts)")
-    print("="*80)
+    print("="*110)
+    
+    # Check which algorithms are present
+    all_algos = set(d['algorithm'] for d in data)
+    has_pmaxsum = 'PMAXSUM' in all_algos
     
     # Group by algorithm and agents
     grouped = defaultdict(list)
@@ -197,14 +229,21 @@ def print_summary_by_agents(data):
     
     summary.sort(key=lambda x: (x['agents'], x['algorithm']))
     
-    print(f"\n{'Agents':>6} | {'PDSA Cost':>10} {'Rounds':>8} {'0-Rnd%':>7} | "
-          f"{'PMGM Cost':>10} {'Rounds':>8} {'0-Rnd%':>7}")
-    print("-"*75)
+    if has_pmaxsum:
+        print(f"\n{'Agents':>6} | {'PDSA Cost':>10} {'Rnds':>6} {'0R%':>5} | "
+              f"{'PMGM Cost':>10} {'Rnds':>6} {'0R%':>5} | "
+              f"{'PMAXSUM Cost':>12} {'Rnds':>6} {'0R%':>5}")
+        print("-"*105)
+    else:
+        print(f"\n{'Agents':>6} | {'PDSA Cost':>10} {'Rounds':>8} {'0-Rnd%':>7} | "
+              f"{'PMGM Cost':>10} {'Rounds':>8} {'0-Rnd%':>7}")
+        print("-"*75)
     
     agents_list = sorted(set(d['agents'] for d in summary))
     for agents in agents_list:
         pdsa = next((d for d in summary if d['algorithm'] == 'PDSA' and d['agents'] == agents), None)
         pmgm = next((d for d in summary if d['algorithm'] == 'PMGM' and d['agents'] == agents), None)
+        pmaxsum = next((d for d in summary if d['algorithm'] == 'PMAXSUM' and d['agents'] == agents), None)
         
         pdsa_cost = pdsa['avg_cost'] if pdsa else float('nan')
         pdsa_rounds = pdsa['avg_rounds'] if pdsa else float('nan')
@@ -214,8 +253,17 @@ def print_summary_by_agents(data):
         pmgm_rounds = pmgm['avg_rounds'] if pmgm else float('nan')
         pmgm_zero = pmgm['zero_round_pct'] if pmgm else 0
         
-        print(f"{agents:>6} | {pdsa_cost:>10.1f} {pdsa_rounds:>8.1f} {pdsa_zero:>6.0f}% | "
-              f"{pmgm_cost:>10.1f} {pmgm_rounds:>8.1f} {pmgm_zero:>6.0f}%")
+        pmaxsum_cost = pmaxsum['avg_cost'] if pmaxsum else float('nan')
+        pmaxsum_rounds = pmaxsum['avg_rounds'] if pmaxsum else float('nan')
+        pmaxsum_zero = pmaxsum['zero_round_pct'] if pmaxsum else 0
+        
+        if has_pmaxsum:
+            pmaxsum_str = f"{pmaxsum_cost:>12.1f} {pmaxsum_rounds:>6.1f} {pmaxsum_zero:>4.0f}%" if pmaxsum else "         N/A    N/A   N/A"
+            print(f"{agents:>6} | {pdsa_cost:>10.1f} {pdsa_rounds:>6.1f} {pdsa_zero:>4.0f}% | "
+                  f"{pmgm_cost:>10.1f} {pmgm_rounds:>6.1f} {pmgm_zero:>4.0f}% | {pmaxsum_str}")
+        else:
+            print(f"{agents:>6} | {pdsa_cost:>10.1f} {pdsa_rounds:>8.1f} {pdsa_zero:>6.0f}% | "
+                  f"{pmgm_cost:>10.1f} {pmgm_rounds:>8.1f} {pmgm_zero:>6.0f}%")
 
 def main():
     if len(sys.argv) < 2:

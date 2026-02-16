@@ -142,7 +142,14 @@ public class AgentBrain implements IMaxSumBrain {
     
     @Override
     public int getRound() {
-        return currentRound;
+        // When done, currentRound is the last completed round
+        // When running, currentRound is the round in progress (started but not finished)
+        // So we return currentRound - 1 to report completed rounds
+        if (done) {
+            return currentRound;
+        } else {
+            return Math.max(0, currentRound - 1);
+        }
     }
     
     @Override
