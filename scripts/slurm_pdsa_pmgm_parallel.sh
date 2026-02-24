@@ -50,8 +50,8 @@ PROBLEM_SEED=1000
 
 # Network-specific parameters
 RANDOM_DENSITY=0.4
-SCALEFREE_INIT=4
-SCALEFREE_ADD=2
+SCALEFREE_INIT=5
+SCALEFREE_ADD=4
 
 # Timestamp for this batch (use job array ID for consistency across tasks)
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)

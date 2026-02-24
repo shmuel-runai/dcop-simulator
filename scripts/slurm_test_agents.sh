@@ -2,9 +2,9 @@
 #SBATCH --job-name=dcop_agents
 #SBATCH --output=slurm_logs/dcop_agents_%j.out
 #SBATCH --error=slurm_logs/dcop_agents_%j.err
-#SBATCH --time=48:00:00
-#SBATCH --mem=16G
-#SBATCH --cpus-per-task=1
+#SBATCH --time=120:00:00
+#SBATCH --mem=8G
+#SBATCH --cpus-per-task=16
 
 # DCOP Performance Test - Varying Agent Count
 #
@@ -34,7 +34,7 @@ mkdir -p "$RUN_DIR"
 
 # Configuration
 NETWORK_TYPES="RANDOM SCALE_FREE"
-TIMEOUTS="60 120 180"
+TIMEOUTS="60 120 180 240 300"
 AGENT_COUNTS="10 20 30 40 50 60 70 80 90 100"
 DOMAIN_SIZE=10
 MIN_COST=0
@@ -42,8 +42,8 @@ MAX_COST=10
 NUM_PROBLEMS=50
 PROBLEM_SEED=1000
 RANDOM_DENSITY=0.4
-SCALEFREE_INIT=4
-SCALEFREE_ADD=2
+SCALEFREE_INIT=5
+SCALEFREE_ADD=4
 
 # Write config file
 CONFIG_FILE="$RUN_DIR/config.txt"

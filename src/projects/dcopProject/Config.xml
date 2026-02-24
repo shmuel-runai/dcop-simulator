@@ -221,8 +221,8 @@
 			maxCost="10"
 			networkDensity="0.3"
 			networkType="RANDOM"
-			initClique="4"
-			addition="2"
+			initClique="5"
+			addition="4"
 		/>
 		
 		<!-- Node display settings -->
