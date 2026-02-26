@@ -36,8 +36,8 @@ NUM_PROBLEMS=10
 MIN_COST=0
 MAX_COST=10
 NETWORK_DENSITY=0.3
-INIT_CLIQUE=4
-ADDITION=2
+INIT_CLIQUE=5
+ADDITION=4
 PROBLEM_SEED=1000
 OUTPUT_PREFIX=""
 EXPORT_PROBLEMS="false"
@@ -120,7 +120,7 @@ done
 # Configuration
 # Note: -Djava.awt.headless=true is required for running on headless servers/clusters
 # JAVA_CMD can be overridden via environment variable
-JAVA_CMD="${JAVA_CMD:-java -Djava.awt.headless=true -Xmx8g} -cp binaries/bin:binaries/jdom.jar"
+JAVA_CMD="${JAVA_CMD:-java -Djava.awt.headless=true -Xmx12g} -cp binaries/bin:binaries/jdom.jar"
 MAIN_CLASS="sinalgo.runtime.Main"
 PROJECT="-project dcopProject -batch"
 
