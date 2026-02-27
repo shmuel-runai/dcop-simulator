@@ -242,10 +242,9 @@ public class AgentBrain implements IMaxSumBrain {
             return;
         }
         
-        // If no function neighbors (isolated agent), proceed to next round immediately
         if (functionNeighbors.isEmpty()) {
-            debug("No function neighbors - proceeding to next round immediately");
-            kickStartRound();
+            debug("No function neighbors - isolated agent, finishing immediately");
+            kickStartLastRound();
             return;
         }
         
