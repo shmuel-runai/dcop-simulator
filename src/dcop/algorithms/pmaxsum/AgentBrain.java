@@ -168,14 +168,15 @@ public class AgentBrain implements IMaxSumBrain {
     
     @Override
     public int getRound() {
-        // When done, currentRound is the last completed round
-        // When running, currentRound is the round in progress (started but not finished)
-        // So we return currentRound - 1 to report completed rounds
         if (done) {
             return currentRound;
         } else {
             return Math.max(0, currentRound - 1);
         }
+    }
+    
+    public int getCurrentRound() {
+        return currentRound;
     }
     
     @Override
@@ -224,17 +225,18 @@ public class AgentBrain implements IMaxSumBrain {
             }
         }
         
-        // Wait until all function neighbors have sent their Rs
         boolean allReceived = tickSync(initRsWaiterKey(msg.round), functionNeighbors.size());
         if (!allReceived) {
             return;
         }
         
+        System.out.println("DIAG Agent[" + agentIndex + "] allInjectRs received for round=" + msg.round + " -> calling kickStartRound (currentRound before=" + currentRound + ")");
         kickStartRound();
     }
     
     private void kickStartRound() {
         currentRound++;
+        System.out.println("DIAG Agent[" + agentIndex + "] kickStartRound: currentRound=" + currentRound + " getRound()=" + getRound() + " done=" + done);
         debug("Kick start round: " + currentRound);
         
         if (currentRound == lastRound) {

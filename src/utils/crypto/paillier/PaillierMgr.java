@@ -1,4 +1,4 @@
-package crypto.utils;
+package utils.crypto.paillier;
 
 import java.math.BigInteger;
 import java.util.HashMap;

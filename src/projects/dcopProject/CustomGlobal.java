@@ -54,6 +54,7 @@ public class CustomGlobal extends AbstractCustomGlobal {
     private int lastRound = -1;          // -1 = timeout-based halting, >0 = round-based halting
     private IDCOPNetworkBuilder currentNetworkBuilder;  // For post-deploy wiring (MAXSUM/P-MAXSUM)
     private boolean testRunning;
+    private boolean testSuiteComplete;
     private int currentIteration;
     private long iterationStartTime;
     private long iterationTimeoutMs;
@@ -237,6 +238,7 @@ public class CustomGlobal extends AbstractCustomGlobal {
         }
         
         this.testRunning = false;
+        this.testSuiteComplete = false;
         this.currentIteration = 0;
         this.iterationInProgress = false;
         
@@ -267,11 +269,13 @@ public class CustomGlobal extends AbstractCustomGlobal {
      */
     @Override
     public boolean hasTerminated() {
+        if (testSuiteComplete) {
+            return true;
+        }
         if (!iterationInProgress) {
-            return false; // Not running an iteration
+            return false;
         }
         
-        // Check termination condition based on mode
         if (lastRound > 0) {
             return checkRoundBasedHalting();
         } else {
@@ -326,10 +330,11 @@ public class CustomGlobal extends AbstractCustomGlobal {
     private boolean checkTimeoutBasedHalting() {
         long elapsed = System.currentTimeMillis() - iterationStartTime;
         if (elapsed >= iterationTimeoutMs) {
+            System.out.println("DIAG TIMEOUT FIRED: elapsed=" + elapsed + "ms, timeout=" + iterationTimeoutMs + "ms, sinalgoRound=" + sinalgo.runtime.Global.currentTime);
             finishCurrentIteration();
         }
         
-        return false; // Continue simulation for next iteration
+        return false;
     }
     
     /**
@@ -617,19 +622,26 @@ public class CustomGlobal extends AbstractCustomGlobal {
         // Calculate total cost
         int totalCost = currentProblem.getTotalCost(agentValues);
         
-        // Collect round statistics only from actual agents
         int minRounds = Integer.MAX_VALUE;
         int maxRoundsActual = 0;
         int totalRounds = 0;
         int agentsWithRounds = 0;
+        System.out.println("DIAG === Collecting rounds for iteration " + (currentIteration + 1) + " ===");
         nodeEnum = Tools.getNodeList().getNodeEnumeration();
         while (nodeEnum.hasMoreElements()) {
             IDCOPAgent agent = (IDCOPAgent) nodeEnum.nextElement();
             int agentId = agent.getID();
-            // Only collect from agent nodes (ID 1 to N), skip function nodes
             if (agentId >= 1 && agentId <= numAgents) {
                 int rounds = agent.getProperty("rounds");
-                if (rounds >= 0) {  // Only count if supported
+                int rawRound = -99;
+                if (agent instanceof dcop.algorithms.pmaxsum.sinalgo.PMaxSumNode) {
+                    dcop.algorithms.pmaxsum.sinalgo.PMaxSumNode pmNode = (dcop.algorithms.pmaxsum.sinalgo.PMaxSumNode) agent;
+                    if (pmNode.getBrain() instanceof dcop.algorithms.pmaxsum.AgentBrain) {
+                        rawRound = ((dcop.algorithms.pmaxsum.AgentBrain) pmNode.getBrain()).getCurrentRound();
+                    }
+                }
+                System.out.println("DIAG   agentId=" + agentId + " getRound()=" + rounds + " currentRound=" + rawRound);
+                if (rounds >= 0) {
                     totalRounds += rounds;
                     minRounds = Math.min(minRounds, rounds);
                     maxRoundsActual = Math.max(maxRoundsActual, rounds);
@@ -637,6 +649,7 @@ public class CustomGlobal extends AbstractCustomGlobal {
                 }
             }
         }
+        System.out.println("DIAG === Result: min=" + minRounds + " max=" + maxRoundsActual + " agentsWithRounds=" + agentsWithRounds + " ===");
         
         // Store result (use 1-based iteration number for display)
         // If no agents reported rounds, use -1 to indicate algorithm doesn't use rounds
@@ -705,6 +718,7 @@ public class CustomGlobal extends AbstractCustomGlobal {
      */
     private void finishTestSuite() {
         testRunning = false;
+        testSuiteComplete = true;
         
         System.out.println("\n========================================");
         System.out.println("Test Suite Completed");
