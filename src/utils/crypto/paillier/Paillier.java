@@ -69,15 +69,43 @@ public class Paillier {
     }
 
     /**
+     * Constructs an instance of the Paillier cryptosystem using a seeded RNG for reproducible key generation.
+     * @param rng Seeded random number generator (e.g. new Random(cryptoSeed))
+     */
+    public Paillier(Random rng) {
+        KeyGeneration(512, 64, rng);
+    }
+
+    /**
+     * Constructs an instance of the Paillier cryptosystem with custom bit length and certainty, using a seeded RNG.
+     * @param bitLengthVal number of bits of modulus
+     * @param certainty prime certainty
+     * @param rng Seeded random number generator
+     */
+    public Paillier(int bitLengthVal, int certainty, Random rng) {
+        KeyGeneration(bitLengthVal, certainty, rng);
+    }
+
+    /**
      * Sets up the public key and private key.
      * @param bitLengthVal number of bits of modulus.
      * @param certainty The probability that the new BigInteger represents a prime number will exceed (1 - 2^(-certainty)). The execution time of this constructor is proportional to the value of this parameter.
      */
     public void KeyGeneration(int bitLengthVal, int certainty) {
+        KeyGeneration(bitLengthVal, certainty, new Random());
+    }
+
+    /**
+     * Sets up the public key and private key using a provided RNG (for reproducible/deterministic key generation).
+     * @param bitLengthVal number of bits of modulus.
+     * @param certainty The probability that the new BigInteger represents a prime number will exceed (1 - 2^(-certainty)).
+     * @param rng Random number generator (seeded for reproducibility).
+     */
+    public void KeyGeneration(int bitLengthVal, int certainty, Random rng) {
         bitLength = bitLengthVal;
         /*Constructs two randomly generated positive BigIntegers that are probably prime, with the specified bitLength and certainty.*/
-        p = new BigInteger(bitLength / 2, certainty, new Random());
-        q = new BigInteger(bitLength / 2, certainty, new Random());
+        p = new BigInteger(bitLength / 2, certainty, rng);
+        q = new BigInteger(bitLength / 2, certainty, rng);
 
         n = p.multiply(q);
         nsquare = n.multiply(n);

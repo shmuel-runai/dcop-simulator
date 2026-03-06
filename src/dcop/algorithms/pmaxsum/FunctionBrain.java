@@ -5,8 +5,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 
-import crypto.utils.Paillier;
-import crypto.utils.PaillierMgr;
+import utils.crypto.paillier.Paillier;
+import utils.crypto.paillier.PaillierMgr;
 import dcop.algorithms.pmaxsum.messages.*;
 import sinalgo.nodes.messages.Message;
 import sinalgo.runtime.Global;
@@ -49,7 +49,10 @@ public class FunctionBrain implements IMaxSumBrain {
     // Crypto
     private final PaillierMgr paillierMgr;
     private final BigInteger prime;
-    
+
+    /** Seed for reproducible protocol randomness (from DCOPTest/algorithmSeed). */
+    private final long cryptoSeed;
+
     // Round state
     private final Map<String, BigInteger> variables;
     
@@ -69,11 +72,12 @@ public class FunctionBrain implements IMaxSumBrain {
      * @param constraintMatrix Cost matrix [domainSizeA][domainSizeB]
      * @param paillierMgr Shared Paillier key manager
      * @param prime Prime modulus for field arithmetic
+     * @param cryptoSeed Seed for protocol RNG (reproducible runs)
      */
-    public FunctionBrain(int agentA, int agentB, 
+    public FunctionBrain(int agentA, int agentB,
                          int domainSizeA, int domainSizeB,
                          int[][] constraintMatrix,
-                         PaillierMgr paillierMgr, BigInteger prime) {
+                         PaillierMgr paillierMgr, BigInteger prime, long cryptoSeed) {
         this.agentA = agentA;
         this.agentB = agentB;
         this.domainSizeA = domainSizeA;
@@ -81,7 +85,8 @@ public class FunctionBrain implements IMaxSumBrain {
         this.constraintMatrix = constraintMatrix;
         this.paillierMgr = paillierMgr;
         this.prime = prime;
-        
+        this.cryptoSeed = cryptoSeed;
+
         this.variables = new HashMap<>();
     }
     
@@ -155,7 +160,7 @@ public class FunctionBrain implements IMaxSumBrain {
     
     @Override
     public void start() {
-        random = new Random();
+        random = new Random(cryptoSeed + 2000000L + 10000L * agentA + agentB);
         pendingStart = true;
         // Message sending happens in tick() to avoid Sinalgo synchronization issues
     }

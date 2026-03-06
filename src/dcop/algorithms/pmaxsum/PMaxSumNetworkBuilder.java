@@ -8,8 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-import crypto.utils.Paillier;
-import crypto.utils.PaillierMgr;
+import utils.crypto.paillier.Paillier;
+import utils.crypto.paillier.PaillierMgr;
 import dcop.algorithms.pmaxsum.sinalgo.PMaxSumNode;
 import dcop.common.DCOPProblem;
 import dcop.common.network.DCOPNetwork;
@@ -38,14 +38,16 @@ public class PMaxSumNetworkBuilder implements IDCOPNetworkBuilder {
     // Using 2^31 - 1 was a BUG that caused incorrect R value computations.
     private static BigInteger DEFAULT_PRIME = null;
     
+    /** Fixed seed for default prime so it is deterministic across runs. */
+    private static final long DEFAULT_PRIME_SEED = 0L;
+
     /**
      * Gets the default prime for P-MAXSUM computations.
-     * Uses nsquare - 1 from a Paillier instance to ensure sufficient range.
+     * Uses nsquare - 1 from a Paillier instance (seeded for reproducibility).
      */
     private static synchronized BigInteger getDefaultPrime() {
         if (DEFAULT_PRIME == null) {
-            // Create a temporary Paillier instance to get nsquare
-            Paillier tempPaillier = new Paillier();
+            Paillier tempPaillier = new Paillier(new Random(DEFAULT_PRIME_SEED));
             DEFAULT_PRIME = tempPaillier.nsquare.subtract(BigInteger.ONE);
         }
         return DEFAULT_PRIME;
@@ -108,7 +110,7 @@ public class PMaxSumNetworkBuilder implements IDCOPNetworkBuilder {
         // ========================================
         for (int agentId = 1; agentId <= numAgents; agentId++) {
             // Create brain
-            AgentBrain brain = new AgentBrain(agentId, domainSize, lastRound, paillierMgr, prime);
+            AgentBrain brain = new AgentBrain(agentId, domainSize, lastRound, paillierMgr, prime, algorithmSeed);
             agentBrains.put(agentId, brain);
             
             // Create node
@@ -139,7 +141,8 @@ public class PMaxSumNetworkBuilder implements IDCOPNetworkBuilder {
                         agentA, agentB,
                         domainSize, domainSize,  // Both agents have same domain size
                         costMatrix,
-                        paillierMgr, prime
+                        paillierMgr, prime,
+                        algorithmSeed
                     );
                     functionBrains.put(key, brain);
                     

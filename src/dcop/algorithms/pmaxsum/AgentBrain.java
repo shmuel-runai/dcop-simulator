@@ -5,8 +5,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 
-import crypto.utils.Paillier;
-import crypto.utils.PaillierMgr;
+import utils.crypto.paillier.Paillier;
+import utils.crypto.paillier.PaillierMgr;
 import dcop.algorithms.pmaxsum.messages.*;
 import sinalgo.nodes.messages.Message;
 import sinalgo.runtime.Global;
@@ -58,33 +58,39 @@ public class AgentBrain implements IMaxSumBrain {
     // Random generator
     private Random random;
     
+    /** Seed for reproducible crypto and protocol randomness (from DCOPTest/algorithmSeed). */
+    private final long cryptoSeed;
+
     /**
      * Create an AgentBrain.
-     * 
+     *
      * @param agentIndex DCOP agent ID (1-based)
      * @param domainSize Number of domain values
      * @param lastRound Number of rounds before termination
      * @param paillierMgr Shared Paillier key manager
      * @param prime Prime modulus for field arithmetic
+     * @param cryptoSeed Seed for Paillier key generation and protocol RNG (reproducible runs)
      */
-    public AgentBrain(int agentIndex, int domainSize, int lastRound, 
-                      PaillierMgr paillierMgr, BigInteger prime) {
+    public AgentBrain(int agentIndex, int domainSize, int lastRound,
+                      PaillierMgr paillierMgr, BigInteger prime, long cryptoSeed) {
         this.agentIndex = agentIndex;
         this.domainSize = domainSize;
         this.lastRound = lastRound;
         this.paillierMgr = paillierMgr;
         this.prime = prime;
-        
+        this.cryptoSeed = cryptoSeed;
+
         this.functionNeighbors = new HashMap<>();
         this.variables = new HashMap<>();
         this.syncCounters = new HashMap<>();
         this.selectedValue = -1;
         this.done = false;
         this.running = false;
-        
-        // Create Paillier keys for this agent
-        paillierMgr.put(ePaillierKey(agentIndex), new Paillier());
-        paillierMgr.put(fPaillierKey(agentIndex), new Paillier());
+
+        // Create Paillier keys for this agent (seeded for reproducibility)
+        Random keyRng = new Random(cryptoSeed + 10000L * agentIndex);
+        paillierMgr.put(ePaillierKey(agentIndex), new Paillier(keyRng));
+        paillierMgr.put(fPaillierKey(agentIndex), new Paillier(keyRng));
     }
     
     // ========== Paillier key helpers ==========
@@ -140,7 +146,7 @@ public class AgentBrain implements IMaxSumBrain {
         done = false;
         variables.clear();
         syncCounters.clear();
-        random = new Random();
+        random = new Random(cryptoSeed + 1000000L * (agentIndex + 1));
         currentRound = 0;
         selectedValue = random.nextInt(domainSize); // Default value
     }
