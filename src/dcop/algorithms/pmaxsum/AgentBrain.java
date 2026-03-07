@@ -55,6 +55,9 @@ public class AgentBrain implements IMaxSumBrain {
     private boolean done;
     private boolean running;
     
+    // Last-call flag: when set, the next tick() triggers Protocol 3 for final value selection
+    private boolean lastCallPending;
+    
     // Random generator
     private Random random;
     
@@ -144,6 +147,7 @@ public class AgentBrain implements IMaxSumBrain {
     public void start() {
         running = true;
         done = false;
+        lastCallPending = false;
         variables.clear();
         syncCounters.clear();
         random = new Random(cryptoSeed + 1000000L * (agentIndex + 1));
@@ -208,11 +212,16 @@ public class AgentBrain implements IMaxSumBrain {
     
     @Override
     public void tick() {
-        // Agent brains respond to FunctionBrain, but if there are no function neighbors
-        // (isolated agent), we need to self-start and finish immediately
         if (running && functionNeighbors.isEmpty() && currentRound == 0) {
             debug("No function neighbors - self-starting isolated agent");
             kickStartRound();
+            return;
+        }
+        
+        if (lastCallPending && !done) {
+            lastCallPending = false;
+            debug("Last call triggered — running Protocol 3 for final value selection");
+            runProtocol3();
         }
     }
     
@@ -240,23 +249,36 @@ public class AgentBrain implements IMaxSumBrain {
         kickStartRound();
     }
     
+    /**
+     * Trigger the "last call" — on the next tick(), this agent will run Protocol 3
+     * to compute its final selectedValue instead of continuing with normal rounds.
+     */
+    public void triggerLastCall() {
+        if (done || currentRound < 1) {
+            return;
+        }
+        lastCallPending = true;
+    }
+    
     private void kickStartRound() {
         currentRound++;
         System.out.println("DIAG Agent[" + agentIndex + "] kickStartRound: currentRound=" + currentRound + " getRound()=" + getRound() + " done=" + done);
         debug("Kick start round: " + currentRound);
         
-        if (currentRound == lastRound) {
-            kickStartLastRound();
-            return;
-        }
-        
         if (functionNeighbors.isEmpty()) {
             debug("No function neighbors - isolated agent, finishing immediately");
-            kickStartLastRound();
+            selectedValue = 0;
+            running = false;
+            done = true;
             return;
         }
         
-        // Start protocol 1 with all function neighbors
+        if (currentRound == lastRound) {
+            runProtocol3();
+            return;
+        }
+        
+        // Normal round: start Protocol 1
         for (Integer otherId : functionNeighbors.keySet()) {
             calcQs(otherId);
         }
@@ -361,17 +383,8 @@ public class AgentBrain implements IMaxSumBrain {
         transport.sendMessage(response, senderNodeId);
     }
     
-    private void kickStartLastRound() {
-        debug("Last round: " + currentRound);
-        
-        // If no function neighbors (isolated agent), just pick default value
-        if (functionNeighbors.isEmpty()) {
-            debug("No function neighbors - selecting default value 0");
-            selectedValue = 0;
-            running = false;
-            done = true;
-            return;
-        }
+    private void runProtocol3() {
+        debug("Protocol 3 (value selection) at round: " + currentRound);
         
         // Generate shifter to hide actual values
         // CRITICAL BUG FIX: encShifter must be encrypted with F_agentIndex (not E_agentIndex)

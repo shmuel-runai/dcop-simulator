@@ -7,43 +7,14 @@ import sys
 from collections import defaultdict
 
 
-GRACE_MULTIPLIER = 2.0
-
-
 def parse_result_file(filepath):
-    """Parse a result CSV, applying a grace period to PMAXSUM round counts.
-
-    If a problem's runtime exceeds GRACE_MULTIPLIER * timeout, the reported
-    rounds are reduced by 1 (floored at 0).  This compensates for the fact
-    that the timeout is only checked between Sinalgo rounds, so heavy rounds
-    can overshoot the timeout significantly and inflate the round count.
-    """
+    """Parse a result CSV and return list of (cost, rounds) tuples."""
     results = []
-    timeout_ms = None
-    in_config = False
     in_results = False
-    config_header = None
-    is_pmaxsum = False
 
     with open(filepath, 'r') as f:
         for line in f:
             line = line.strip()
-            if line == '# Configuration':
-                in_config = True
-                continue
-            if in_config and not line.startswith('#') and line:
-                if config_header is None:
-                    config_header = line.split(',')
-                    continue
-                vals = line.split(',')
-                cfg = dict(zip(config_header, vals))
-                try:
-                    timeout_ms = int(cfg.get('timeout_sec', '0')) * 1000
-                except ValueError:
-                    timeout_ms = None
-                is_pmaxsum = cfg.get('algorithm', '') == 'PMAXSUM'
-                in_config = False
-                continue
             if line == '# Results':
                 in_results = True
                 continue
@@ -53,11 +24,6 @@ def parse_result_file(filepath):
                     try:
                         cost = float(parts[2])
                         rounds = float(parts[3])
-                        runtime = float(parts[4])
-
-                        if is_pmaxsum and timeout_ms and runtime > timeout_ms * GRACE_MULTIPLIER:
-                            rounds = max(0, rounds - 1)
-
                         results.append((cost, rounds))
                     except ValueError:
                         continue

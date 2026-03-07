@@ -21,6 +21,7 @@ import dcop.algorithms.basic.BasicNetworkBuilder;
 import dcop.algorithms.dsa.DSANetworkBuilder;
 import dcop.algorithms.pdsa.PDSANetworkBuilder;
 import dcop.algorithms.pmgm.PMGMNetworkBuilder;
+import dcop.algorithms.pmaxsum.IMaxSumBrain;
 import dcop.algorithms.pmaxsum.PMaxSumNetworkBuilder;
 import dcop.algorithms.maxsum.MaxSumNetworkBuilder;
 import sinalgo.configuration.Configuration;
@@ -62,6 +63,11 @@ public class CustomGlobal extends AbstractCustomGlobal {
     private boolean iterationTimerStarted;  // Flag to track if timer has started for current iteration
     private int totalIterations;
     private long[] iterationActualRuntimes;  // Track actual wall-clock time per iteration
+    
+    // Last-call phase: extra Sinalgo rounds after timeout for PMAXSUM to run Protocol 3
+    private boolean lastCallTriggered;
+    private long lastCallStartRound;
+    private static final int LAST_CALL_EXTRA_ROUNDS = 4;
     
     // Output configuration
     private String outputPrefix = "";     // Prefix for output files
@@ -324,17 +330,62 @@ public class CustomGlobal extends AbstractCustomGlobal {
     
     /**
      * Checks if the iteration timeout has been reached.
+     * For PMAXSUM: triggers a "last call" phase giving agents extra Sinalgo rounds
+     * to run Protocol 3 and compute selectedValue before halting.
      * 
      * @return false (simulation continues for next iteration or keeps running)
      */
     private boolean checkTimeoutBasedHalting() {
+        long currentSinalgoRound = (long) sinalgo.runtime.Global.currentTime;
+        
+        // If last call was already triggered, check if enough extra rounds have passed
+        if (lastCallTriggered) {
+            if (currentSinalgoRound >= lastCallStartRound + LAST_CALL_EXTRA_ROUNDS) {
+                System.out.println("DIAG LAST_CALL COMPLETE: started at sinalgo round " + lastCallStartRound 
+                    + ", now at " + currentSinalgoRound + " (+" + (currentSinalgoRound - lastCallStartRound) + " rounds)");
+                finishCurrentIteration();
+            }
+            return false;
+        }
+        
         long elapsed = System.currentTimeMillis() - iterationStartTime;
         if (elapsed >= iterationTimeoutMs) {
-            System.out.println("DIAG TIMEOUT FIRED: elapsed=" + elapsed + "ms, timeout=" + iterationTimeoutMs + "ms, sinalgoRound=" + sinalgo.runtime.Global.currentTime);
-            finishCurrentIteration();
+            System.out.println("DIAG TIMEOUT FIRED: elapsed=" + elapsed + "ms, timeout=" + iterationTimeoutMs 
+                + "ms, sinalgoRound=" + currentSinalgoRound);
+            
+            if (selectedAlgorithm == AlgorithmType.PMAXSUM) {
+                lastCallTriggered = true;
+                lastCallStartRound = currentSinalgoRound;
+                triggerPMaxSumLastCall();
+            } else {
+                finishCurrentIteration();
+            }
         }
         
         return false;
+    }
+    
+    /**
+     * Triggers Protocol 3 on all PMAXSUM agent brains so they compute their
+     * final selectedValue during the extra "last call" Sinalgo rounds.
+     */
+    private void triggerPMaxSumLastCall() {
+        int triggered = 0;
+        Enumeration<?> nodeEnum = Tools.getNodeList().getNodeEnumeration();
+        while (nodeEnum.hasMoreElements()) {
+            Object obj = nodeEnum.nextElement();
+            if (obj instanceof dcop.algorithms.pmaxsum.sinalgo.PMaxSumNode) {
+                dcop.algorithms.pmaxsum.sinalgo.PMaxSumNode pmNode = 
+                    (dcop.algorithms.pmaxsum.sinalgo.PMaxSumNode) obj;
+                IMaxSumBrain brain = pmNode.getBrain();
+                if (brain != null && brain.isAgent()) {
+                    ((dcop.algorithms.pmaxsum.AgentBrain) brain).triggerLastCall();
+                    triggered++;
+                }
+            }
+        }
+        System.out.println("DIAG LAST_CALL triggered on " + triggered + " PMAXSUM agents, "
+            + "will run " + LAST_CALL_EXTRA_ROUNDS + " more Sinalgo rounds");
     }
     
     /**
@@ -572,6 +623,7 @@ public class CustomGlobal extends AbstractCustomGlobal {
         iterationTimeoutMs = this.timeoutMs;
         iterationInProgress = true;
         iterationStartTime = System.currentTimeMillis();  // Start timer NOW
+        lastCallTriggered = false;
 
         
         if (lastRound > 0) {
